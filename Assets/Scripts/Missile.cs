@@ -15,6 +15,10 @@ public class Missile : MonoBehaviour
     public float lifetime = 9f;
     public float damage = 100f;
     public float proximityRadius = 12f;
+    [Tooltip("Everything within this distance of the blast takes splash damage (m). 0 disables it.")]
+    public float splashRadius = 0f;
+    [Tooltip("Splash damage right next to the blast; falls off to zero at the edge of the radius.")]
+    public float splashDamage = 0f;
     [Tooltip("Target is lost if it gets further than this off the missile's nose (deg).")]
     public float seekerCone = 70f;
     public float castRadius = 1.5f;
@@ -77,7 +81,7 @@ public class Missile : MonoBehaviour
         {
             Target hitTarget = hit.collider.GetComponentInParent<Target>();
             if (hitTarget != null) hitTarget.Damage(damage);
-            Detonate(hit.point);
+            Detonate(hit.point, hitTarget);
             return;
         }
 
@@ -87,12 +91,13 @@ public class Missile : MonoBehaviour
             && (target.transform.position - transform.position).sqrMagnitude < proximityRadius * proximityRadius)
         {
             target.Damage(damage);
-            Detonate(transform.position);
+            Detonate(transform.position, target);
         }
     }
 
-    void Detonate(Vector3 position)
+    void Detonate(Vector3 position, Target directHit = null)
     {
+        ApplySplash(position, directHit);
         if (explosionPrefab != null) Instantiate(explosionPrefab, position, Quaternion.identity);
         if (trail != null)
         {
@@ -100,5 +105,26 @@ public class Missile : MonoBehaviour
             Destroy(trail.gameObject, trail.time);
         }
         Destroy(gameObject);
+    }
+
+    /// <summary>Damages every target near the blast except the one hit directly and the launcher.</summary>
+    void ApplySplash(Vector3 position, Target directHit)
+    {
+        if (splashRadius <= 0f || splashDamage <= 0f) return;
+
+        // Backwards, in case a kill removes entries while we iterate.
+        for (int i = Target.All.Count - 1; i >= 0; i--)
+        {
+            Target t = Target.All[i];
+            if (t == directHit || t.IsDead) continue;
+            if (owner != null && t.transform.IsChildOf(owner)) continue;
+
+            // Measure to the surface, so large targets like hangars aren't judged by their centre.
+            Vector3 nearest = t.TryGetComponent(out Collider c) ? c.ClosestPoint(position) : t.transform.position;
+            float distance = Vector3.Distance(position, nearest);
+            if (distance >= splashRadius) continue;
+
+            t.Damage(splashDamage * (1f - distance / splashRadius));
+        }
     }
 }

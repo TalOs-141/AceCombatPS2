@@ -30,6 +30,8 @@ public class WeaponSystem : MonoBehaviour
     public Missile missilePrefab;
     [Tooltip("One launch rail per entry; each reloads separately.")]
     public Transform[] hardpoints;
+    [Tooltip("Missile model shown on each rail while it is loaded; same order as hardpoints.")]
+    public Transform[] railVisuals;
     public int missileAmmo = 40;
     public float missileReload = 4f;
 
@@ -107,6 +109,7 @@ public class WeaponSystem : MonoBehaviour
         else if (switchPressed) SelectTarget(NextTarget(), switchLockTime);
 
         UpdateLock();
+        UpdateRailVisuals();
 
         if (missilePressed) FireMissile();
         if (gunHeld && Time.time >= nextGunTime) FireGun();
@@ -200,6 +203,30 @@ public class WeaponSystem : MonoBehaviour
             // The quick lock only applies straight after a switch; a lost lock rebuilds at the normal rate.
             LockProgress = 0f;
             activeLockTime = lockTime;
+        }
+    }
+
+    /// <summary>
+    /// Shows a missile hanging on each loaded rail. It vanishes on launch and
+    /// slides back into place over the last part of the reload.
+    /// </summary>
+    void UpdateRailVisuals()
+    {
+        if (railVisuals == null) return;
+
+        for (int i = 0; i < railVisuals.Length && i < railReadyTime.Length; i++)
+        {
+            Transform visual = railVisuals[i];
+            if (visual == null) continue;
+
+            float arriving = Mathf.InverseLerp(0.75f, 1f, RailReadiness(i));
+            bool show = missileAmmo > 0 && arriving > 0f;
+            if (visual.gameObject.activeSelf != show) visual.gameObject.SetActive(show);
+            if (!show) continue;
+
+            float eased = Mathf.SmoothStep(0f, 1f, arriving);
+            visual.localPosition = new Vector3(0f, 0f, -2.5f * (1f - eased));
+            visual.localScale = Vector3.one * Mathf.Lerp(0.4f, 1f, eased);
         }
     }
 

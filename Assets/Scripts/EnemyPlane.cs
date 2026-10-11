@@ -14,8 +14,10 @@ public class EnemyPlane : MonoBehaviour
     public float attackTurnRate = 40f;
     public float evadeTurnRate = 55f;
     public float maxBank = 70f;
-    [Tooltip("Below this height the plane refuses to descend.")]
+    [Tooltip("Below this height above the ground the plane refuses to descend.")]
     public float groundAvoidAltitude = 300f;
+    [Tooltip("Climbs if terrain is closer than this straight ahead (m).")]
+    public float terrainLookAhead = 1500f;
     [Tooltip("Visual child that gets rolled; the root itself stays unbanked.")]
     public Transform model;
 
@@ -124,8 +126,7 @@ public class EnemyPlane : MonoBehaviour
         }
 
         desired.Normalize();
-        if (transform.position.y < groundAvoidAltitude && desired.y < 0.3f)
-            desired = new Vector3(desired.x, 0.3f, desired.z).normalized;
+        desired = AvoidTerrain(desired);
 
         Quaternion current = transform.rotation;
         Quaternion next = Quaternion.RotateTowards(current, Quaternion.LookRotation(desired), turnRate * dt);
@@ -137,6 +138,21 @@ public class EnemyPlane : MonoBehaviour
         transform.rotation = next;
         transform.position += transform.forward * speed * dt;
         if (model != null) model.localRotation = Quaternion.Euler(0f, 0f, bank);
+    }
+
+    /// <summary>Bends the wanted direction upward when the ground is close below or ahead.</summary>
+    Vector3 AvoidTerrain(Vector3 desired)
+    {
+        Vector3 position = transform.position;
+
+        bool lowBelow = Physics.Raycast(position, Vector3.down, out RaycastHit below, groundAvoidAltitude, ~0, QueryTriggerInteraction.Ignore)
+                        && below.collider is TerrainCollider;
+        bool wallAhead = Physics.Raycast(position, transform.forward, out RaycastHit ahead, terrainLookAhead, ~0, QueryTriggerInteraction.Ignore)
+                         && ahead.collider is TerrainCollider;
+
+        if (wallAhead) return new Vector3(desired.x, 0.8f, desired.z).normalized;
+        if (lowBelow && desired.y < 0.3f) return new Vector3(desired.x, 0.3f, desired.z).normalized;
+        return desired;
     }
 
     void UpdateFiring(Vector3 toPlayer, float dt)

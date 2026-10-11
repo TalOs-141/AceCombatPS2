@@ -475,7 +475,9 @@ MonoBehaviour:
   lifetime: 9
   damage: 100
   proximityRadius: 12
+  splashRadius: 70
+  splashDamage: 70
   seekerCone: 70
   castRadius: 1.5
-  explosionPrefab: {fileID: 9188527897562665, guid: 0f698e5ffe12b9b4885430c9d7100bab, type: 3}
+  explosionPrefab: {fileID: 1039925447649240034, guid: e6e91bc8605d78449aff81280db1a688, type: 3}
   trail: {fileID: 8423644369240941953}
