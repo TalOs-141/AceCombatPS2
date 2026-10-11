@@ -48,6 +48,8 @@ MonoBehaviour:
   speed: 1100
   lifetime: 1.3
   damage: 8
+  hitEffect: {fileID: 8272161990998027281, guid: 26d7f30520040294a94e90fde498709a, type: 3}
+  missEffect: {fileID: 3601461710677229826, guid: ebe91418a92156745846526ab76941ce, type: 3}
 --- !u!1 &5455757686645129689
 GameObject:
   m_ObjectHideFlags: 0

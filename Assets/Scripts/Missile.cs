@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -6,6 +7,8 @@ using UnityEngine;
 /// </summary>
 public class Missile : MonoBehaviour
 {
+    public static readonly List<Missile> Active = new List<Missile>();
+
     public float acceleration = 250f;
     public float maxSpeed = 650f;
     public float turnRate = 80f;
@@ -19,10 +22,19 @@ public class Missile : MonoBehaviour
     [Tooltip("Detached on impact so the smoke lingers.")]
     public TrailRenderer trail;
 
+    /// <summary>What this missile is currently homing on; null if unguided or it lost track.</summary>
+    public Target Target => target;
+
     Target target;
     Transform owner;
     float speed;
     float age;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    static void ResetStatics() => Active.Clear();
+
+    void OnEnable() => Active.Add(this);
+    void OnDisable() => Active.Remove(this);
 
     public void Launch(Target lockedTarget, Transform launchedBy, float initialSpeed)
     {
@@ -61,7 +73,7 @@ public class Missile : MonoBehaviour
         float distance = speed * dt;
 
         if (Physics.SphereCast(transform.position, castRadius, transform.forward, out RaycastHit hit, distance, ~0, QueryTriggerInteraction.Ignore)
-            && hit.transform.root != owner)
+            && (owner == null || !hit.transform.IsChildOf(owner)))
         {
             Target hitTarget = hit.collider.GetComponentInParent<Target>();
             if (hitTarget != null) hitTarget.Damage(damage);

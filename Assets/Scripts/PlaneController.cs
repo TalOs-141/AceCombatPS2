@@ -119,8 +119,9 @@ public class PlaneController : MonoBehaviour
 
     void OnCollisionEnter(Collision collision)
     {
-        // Placeholder for a crash: put the plane back where it started.
-        Respawn();
+        // Flying into anything is fatal. Without a Target (e.g. a test scene) just reset.
+        if (TryGetComponent(out Target self)) self.Crash();
+        else Respawn();
     }
 
     public void Respawn()

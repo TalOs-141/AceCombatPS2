@@ -664,6 +664,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 2744618911986738056}
+  - {fileID: 1009055177052761428}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!65 &3349280282572079382
@@ -726,9 +727,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a6c693e9e91ca2a4ea725e16d814e06f, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Target
+  team: 0
   displayName: MIG-29
   maxHealth: 100
   explosionPrefab: {fileID: 8090843760591002901, guid: 1d60bfda0080d774b98f34578171af02, type: 3}
+  destroyOnDeath: 1
 --- !u!114 &8245864084658274827
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -742,13 +745,26 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::EnemyPlane
   speed: 150
-  turnRate: 30
+  patrolTurnRate: 30
+  attackTurnRate: 40
+  evadeTurnRate: 55
   maxBank: 65
+  groundAvoidAltitude: 300
   model: {fileID: 2744618911986738056}
   areaRadius: 3500
   minAltitude: 500
   maxAltitude: 1500
   waypointReachedDistance: 400
+  detectRange: 6000
+  breakOffDistance: 350
+  breakOffTime: 5
+  missilePrefab: {fileID: 5464355802299811644, guid: 57b67dae0efa8ab48ab27738f7e21dac, type: 3}
+  hardpoint: {fileID: 1009055177052761428}
+  fireRange: 2500
+  fireCone: 12
+  lockTime: 2
+  fireCooldown: 10
+  evadeMissileDistance: 1800
 --- !u!1 &5186916920502230775
 GameObject:
   m_ObjectHideFlags: 0
@@ -879,6 +895,37 @@ MeshRenderer:
   m_SortingOrder: 0
   m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
+--- !u!1 &6211746323088194289
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1009055177052761428}
+  m_Layer: 0
+  m_Name: Hardpoint
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1009055177052761428
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6211746323088194289}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: -1.2, z: 2}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7247663680890642626}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &8363910501598863845
 GameObject:
   m_ObjectHideFlags: 0
