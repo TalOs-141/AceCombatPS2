@@ -71,7 +71,7 @@ public class PlaneController : MonoBehaviour
             if (kb.qKey.isPressed) yaw -= 1f;
             if (kb.eKey.isPressed) yaw += 1f;
             if (kb.leftShiftKey.isPressed) throttle += 1f;
-            if (kb.leftCtrlKey.isPressed || kb.spaceKey.isPressed) throttle -= 1f;
+            if (kb.leftCtrlKey.isPressed) throttle -= 1f;
         }
 
         Gamepad pad = Gamepad.current;
