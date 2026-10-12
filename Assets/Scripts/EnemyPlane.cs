@@ -146,13 +146,19 @@ public class EnemyPlane : MonoBehaviour
         Vector3 position = transform.position;
 
         bool lowBelow = Physics.Raycast(position, Vector3.down, out RaycastHit below, groundAvoidAltitude, ~0, QueryTriggerInteraction.Ignore)
-                        && below.collider is TerrainCollider;
+                        && IsGround(below.collider);
         bool wallAhead = Physics.Raycast(position, transform.forward, out RaycastHit ahead, terrainLookAhead, ~0, QueryTriggerInteraction.Ignore)
-                         && ahead.collider is TerrainCollider;
+                         && IsGround(ahead.collider);
 
         if (wallAhead) return new Vector3(desired.x, 0.8f, desired.z).normalized;
         if (lowBelow && desired.y < 0.3f) return new Vector3(desired.x, 0.3f, desired.z).normalized;
         return desired;
+    }
+
+    /// <summary>Terrain, sea, buildings, the carrier: anything solid that isn't another combatant.</summary>
+    static bool IsGround(Collider collider)
+    {
+        return collider.GetComponentInParent<Target>() == null;
     }
 
     void UpdateFiring(Vector3 toPlayer, float dt)

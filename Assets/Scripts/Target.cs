@@ -26,6 +26,8 @@ public class Target : MonoBehaviour
     public bool destroyOnDeath = true;
 
     public event Action<Target> Died;
+    /// <summary>Raised on every hit with the amount of damage taken.</summary>
+    public event Action<Target, float> Damaged;
 
     public float Health { get; private set; }
     public bool IsDead { get; private set; }
@@ -77,7 +79,13 @@ public class Target : MonoBehaviour
     {
         if (IsDead) return;
         Health = Mathf.Max(0f, Health - amount);
+        Damaged?.Invoke(this, amount);
         if (Health <= 0f) Die();
+    }
+
+    public void Repair()
+    {
+        if (!IsDead) Health = maxHealth;
     }
 
     /// <summary>Instant death from a collision.</summary>

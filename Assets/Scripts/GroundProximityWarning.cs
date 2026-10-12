@@ -30,7 +30,8 @@ public class GroundProximityWarning : MonoBehaviour
     {
         TimeToImpact = float.PositiveInfinity;
         Warning = false;
-        if (!plane.enabled) return;
+        // No nagging while parked, rolling, or deliberately descending to land with the gear down.
+        if (!plane.enabled || plane.IsGrounded || plane.GearDown) return;
 
         float speed = Mathf.Max(plane.Speed, 1f);
         Vector3 forward = transform.forward;

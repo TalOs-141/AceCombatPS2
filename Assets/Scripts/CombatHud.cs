@@ -16,6 +16,7 @@ public class CombatHud : MonoBehaviour
     static readonly Color HudGreen = new Color(0.4f, 1f, 0.4f);
     static readonly Color HudRed = new Color(1f, 0.25f, 0.2f);
     static readonly Color HudAmber = new Color(1f, 0.8f, 0.2f);
+    static readonly Color HudBlue = new Color(0.45f, 0.75f, 1f);
 
     // The HUD is laid out for a 720-pixel-tall screen and scaled to fit.
     const float ReferenceHeight = 720f;
@@ -29,6 +30,7 @@ public class CombatHud : MonoBehaviour
     Target player;
     MissileWarning missileWarning;
     GroundProximityWarning groundWarning;
+    PlaneController plane;
     Texture2D radarDisc;
     string message;
     float messageUntil;
@@ -40,6 +42,7 @@ public class CombatHud : MonoBehaviour
         player = weapons.GetComponent<Target>();
         missileWarning = weapons.GetComponent<MissileWarning>();
         groundWarning = weapons.GetComponent<GroundProximityWarning>();
+        plane = weapons.GetComponent<PlaneController>();
     }
 
     void OnEnable() => Target.AnyDestroyed += OnTargetDestroyed;
@@ -76,7 +79,11 @@ public class CombatHud : MonoBehaviour
         DrawDamage();
         DrawWarnings(cam);
         DrawPullUp();
+        DrawHome(cam);
+        DrawFlightStatus();
+        DrawLandingGuide();
         DrawMessages();
+        DrawPause();
         GUI.color = Color.white;
     }
 
@@ -194,6 +201,9 @@ public class CombatHud : MonoBehaviour
             if (Mathf.Repeat(Time.time, 0.2f) < 0.1f) continue;
             Fill(RadarPoint(toRadar, self.position, m.transform.position, centre, radius), 4f, Color.white);
         }
+
+        foreach (LandingSurface surface in LandingSurface.All)
+            Fill(RadarPoint(toRadar, self.position, surface.TouchdownPoint, centre, radius), 7f, HudBlue);
 
         // Own aircraft.
         GUI.color = HudGreen;
@@ -326,19 +336,245 @@ public class CombatHud : MonoBehaviour
     {
         Rect line = R(0f, ViewHeight * 0.22f, ViewWidth, 44f);
         Rect hint = R(0f, ViewHeight * 0.22f + 50f, ViewWidth, 24f);
-        bool playerDead = player != null && player.IsDead;
+        GameFlow flow = GameFlow.Instance;
+        MissionPhase phase = flow != null ? flow.Phase : MissionPhase.Combat;
+        bool pad = FlightInput.Current.usingGamepad;
 
-        if (!playerDead && hadTargets && Target.CountAlive(Team.Enemy) == 0)
+        if (phase == MissionPhase.Complete)
         {
             GUI.color = HudGreen;
-            GUI.Label(line, "MISSION ACCOMPLISHED", bigLabel);
-            GUI.Label(hint, "Press R to fly again", label);
+            GUI.Label(line, "MISSION COMPLETE", bigLabel);
+            GUI.Label(hint, $"{LandingGrade(flow.LastLandingSink)} landing ({flow.LastLandingSink:0.0} m/s)   -   {(pad ? "SELECT" : "R")} to fly again", label);
         }
-        else if (Time.time < messageUntil)
+        else if (phase == MissionPhase.Failed || Time.time < messageUntil)
         {
             GUI.color = HudRed;
             GUI.Label(line, message, bigLabel);
         }
+        else if (flow != null && Time.time < flow.ServicedNoticeUntil)
+        {
+            GUI.color = HudGreen;
+            GUI.Label(line, "REARMED AND REPAIRED", bigLabel);
+        }
+        else if (phase == MissionPhase.Takeoff)
+        {
+            float kmh = plane != null ? plane.takeoffSpeed * 3.6f : 0f;
+            GUI.color = HudGreen;
+            GUI.Label(line, "CLEARED FOR TAKEOFF", bigLabel);
+            GUI.Label(hint, pad
+                ? $"Hold RT to launch, pull back at {kmh:0} km/h, then D-pad down to raise the gear"
+                : $"Hold Shift to launch, press S at {kmh:0} km/h, then G to raise the gear", label);
+        }
+        else if (phase == MissionPhase.ReturnToBase)
+        {
+            GUI.color = HudGreen;
+            GUI.Label(line, "MISSION ACCOMPLISHED", bigLabel);
+            GUI.Label(hint, $"Return to the carrier and land   -   gear: {(pad ? "D-pad down" : "G")}", label);
+        }
+
+        if (GameFlow.FreeFlight)
+        {
+            GUI.color = HudBlue;
+            GUI.Label(R(0f, 16f, ViewWidth, 24f), "FREE FLIGHT", label);
+        }
+    }
+
+    static string LandingGrade(float sink)
+    {
+        if (sink < 0f) return "No";
+        if (sink <= 3f) return "Perfect";
+        if (sink <= 6f) return "Good";
+        if (sink <= 9f) return "Firm";
+        return "Hard";
+    }
+
+    /// <summary>Gear, high-G and stall status under the speed / altitude readout.</summary>
+    void DrawFlightStatus()
+    {
+        if (plane == null || player == null || player.IsDead) return;
+        label.alignment = TextAnchor.UpperLeft;
+
+        if (plane.GearPosition > 0f && plane.GearPosition < 1f)
+        {
+            GUI.color = HudAmber;
+            GUI.Label(R(20f, 112f, 300f, 24f), plane.GearDown ? "GEAR  LOWERING" : "GEAR  RAISING", label);
+        }
+        else if (plane.GearDown)
+        {
+            // Amber is a reminder that the gear is still hanging out in flight.
+            GUI.color = plane.IsGrounded || plane.Speed <= plane.gearMaxSpeed ? HudGreen : HudAmber;
+            GUI.Label(R(20f, 112f, 300f, 24f), "GEAR  DOWN", label);
+        }
+        else if (GearUpOnApproach() && Mathf.Repeat(Time.time, 0.5f) < 0.33f)
+        {
+            GUI.color = HudRed;
+            GUI.Label(R(20f, 112f, 300f, 24f), "GEAR  UP", label);
+        }
+
+        if (plane.IsStalling && Mathf.Repeat(Time.time, 0.4f) < 0.26f)
+        {
+            GUI.color = HudRed;
+            GUI.Label(R(20f, 140f, 300f, 24f), "STALL", label);
+        }
+        else if (plane.HighG)
+        {
+            GUI.color = HudAmber;
+            GUI.Label(R(20f, 140f, 300f, 24f), "HIGH-G", label);
+        }
+
+        label.alignment = TextAnchor.UpperCenter;
+    }
+
+    /// <summary>Low, descending and close to somewhere to land, but the wheels are still up.</summary>
+    bool GearUpOnApproach()
+    {
+        if (plane.IsGrounded || plane.VerticalSpeed > -1f) return false;
+        LandingSurface surface = LandingSurface.Nearest(plane.transform.position);
+        if (surface == null) return false;
+        Vector3 offset = plane.transform.position - surface.TouchdownPoint;
+        return offset.y < 250f && new Vector2(offset.x, offset.z).magnitude < 2500f;
+    }
+
+    /// <summary>Marks the home carrier, with an edge pointer when it's time to go back.</summary>
+    void DrawHome(Camera cam)
+    {
+        GameFlow flow = GameFlow.Instance;
+        if (flow == null || flow.homeBase == null || plane == null || plane.IsGrounded) return;
+
+        Vector3 home = flow.homeBase.TouchdownPoint;
+        float distance = Vector3.Distance(plane.transform.position, home);
+        string text = $"{flow.homeBase.displayName}  {distance / 1000f:0.0} km";
+
+        if (ToGui(cam, home, out Vector2 pos))
+        {
+            Box(pos, 18f, HudBlue, 2f);
+            GUI.color = HudBlue;
+            GUI.Label(R(pos.x - 100f, pos.y + 14f, 200f, 24f), text, label);
+        }
+        else if (flow.Phase == MissionPhase.ReturnToBase || plane.GearDown)
+        {
+            Vector3 local = cam.transform.InverseTransformPoint(home);
+            Vector2 dir = new Vector2(local.x, -local.y);
+            if (dir.sqrMagnitude < 0.0001f) dir = Vector2.up;
+            dir.Normalize();
+
+            Vector2 centre = new Vector2(ViewWidth, ViewHeight) * 0.5f;
+            float radius = ViewHeight * 0.32f;
+            for (int i = 0; i < 4; i++)
+                Fill(centre + dir * (radius - i * 14f), 10f - i * 2f, HudBlue);
+
+            Vector2 textPos = centre + dir * (radius - 80f);
+            GUI.color = HudBlue;
+            GUI.Label(R(textPos.x - 100f, textPos.y - 12f, 200f, 24f), text, label);
+        }
+    }
+
+    /// <summary>
+    /// Approach aid shown with the gear down near a landing surface: crossed
+    /// needles for glide path and line-up, plus sink rate and speed checks.
+    /// </summary>
+    void DrawLandingGuide()
+    {
+        if (plane == null || plane.IsGrounded || !plane.GearDown || player == null || player.IsDead) return;
+
+        LandingSurface surface = LandingSurface.Nearest(plane.transform.position);
+        if (surface == null) return;
+        Vector3 rel = Quaternion.Inverse(surface.LandingRotation) * (plane.transform.position - surface.TouchdownPoint);
+        float distance = rel.magnitude;
+        if (distance > 7000f) return;
+
+        const float size = 130f, half = size * 0.5f;
+        Vector2 centre = new Vector2(ViewWidth - 110f, ViewHeight * 0.36f);
+
+        Box(centre, size, HudBlue, 1f);
+        GUI.color = new Color(HudBlue.r, HudBlue.g, HudBlue.b, 0.3f);
+        GUI.DrawTexture(R(centre.x - half, centre.y - 0.5f, size, 1f), Texture2D.whiteTexture);
+        GUI.DrawTexture(R(centre.x - 0.5f, centre.y - half, 1f, size), Texture2D.whiteTexture);
+
+        // Distance still to fly to the touchdown point, measured along the landing direction.
+        float toGo = -rel.z;
+        string glideText = "PAST TOUCHDOWN POINT";
+        Color glideColor = HudAmber;
+        if (toGo > 20f)
+        {
+            const float idealGlide = 3.5f;
+            float glideError = Mathf.Atan2(rel.y - plane.gearHeight, toGo) * Mathf.Rad2Deg - idealGlide;
+            float lineError = Mathf.Atan2(rel.x, toGo) * Mathf.Rad2Deg;
+
+            // The needles show where the ideal path is: fly toward them to centre them.
+            float needleY = centre.y + Mathf.Clamp(glideError / 3f, -1f, 1f) * half;
+            float needleX = centre.x - Mathf.Clamp(lineError / 6f, -1f, 1f) * half;
+            bool onPath = Mathf.Abs(glideError) < 0.8f && Mathf.Abs(lineError) < 1.5f;
+            GUI.color = onPath ? HudGreen : HudAmber;
+            GUI.DrawTexture(R(centre.x - half, needleY - 1.5f, size, 3f), Texture2D.whiteTexture);
+            GUI.DrawTexture(R(needleX - 1.5f, centre.y - half, 3f, size), Texture2D.whiteTexture);
+
+            if (glideError > 0.8f) glideText = "TOO HIGH";
+            else if (glideError < -0.8f) glideText = "TOO LOW";
+            else if (lineError > 1.5f) glideText = "DRIFTING RIGHT";
+            else if (lineError < -1.5f) glideText = "DRIFTING LEFT";
+            else glideText = "ON GLIDE PATH";
+            glideColor = onPath ? HudGreen : HudAmber;
+        }
+
+        float x = centre.x - 110f, y = centre.y + half + 6f;
+        GUI.color = HudBlue;
+        GUI.Label(R(x, y, 220f, 24f), $"{surface.displayName}  {distance:0} m", label);
+        GUI.color = glideColor;
+        GUI.Label(R(x, y + 24f, 220f, 24f), glideText, label);
+
+        float sink = -plane.VerticalSpeed;
+        GUI.color = sink > plane.maxSinkRate * 0.8f ? HudRed : HudGreen;
+        GUI.Label(R(x, y + 48f, 220f, 24f), $"SINK  {Mathf.Max(sink, 0f):0.0} m/s", label);
+
+        if (plane.Speed > plane.maxLandingSpeed)
+        {
+            GUI.color = HudRed;
+            GUI.Label(R(x, y + 72f, 220f, 24f), "TOO FAST", label);
+        }
+    }
+
+    void DrawPause()
+    {
+        GameFlow flow = GameFlow.Instance;
+        if (flow == null || !flow.Paused) return;
+
+        GUI.color = new Color(0f, 0f, 0f, 0.7f);
+        GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
+
+        GUI.color = HudGreen;
+        GUI.Label(R(0f, 60f, ViewWidth, 44f), "PAUSED", bigLabel);
+
+        string[,] rows =
+        {
+            { "", "KEYBOARD", "CONTROLLER" },
+            { "Pitch / roll", "W S / A D", "Left stick" },
+            { "Yaw", "Q / E", "LB / RB" },
+            { "Accelerate / brake", "Shift / Ctrl", "RT / LT" },
+            { "High-G turn", "Hold Shift + Ctrl", "Hold RT + LT" },
+            { "Missile", "Space", "B / Circle" },
+            { "Gun", "F or left mouse", "A / Cross" },
+            { "Switch target (tap)", "Tab", "Y / Triangle" },
+            { "Target view (hold)", "Tab", "Y / Triangle" },
+            { "Look around", "-", "Right stick" },
+            { "Cockpit / chase view", "C", "Click right stick" },
+            { "Landing gear", "G", "D-pad down" },
+            { "Resume", "Esc or P", "Start" },
+            { "Restart mission", "R", "Select / Back" },
+            { GameFlow.FreeFlight ? "Free flight: ON" : "Free flight: OFF", "V to switch", "X / Square to switch" },
+        };
+
+        label.alignment = TextAnchor.UpperLeft;
+        float left = ViewWidth * 0.5f - 330f;
+        for (int row = 0; row < rows.GetLength(0); row++)
+        {
+            float y = 130f + row * 30f;
+            GUI.color = row == 0 ? HudBlue : HudGreen;
+            GUI.Label(R(left, y, 250f, 26f), rows[row, 0], label);
+            GUI.Label(R(left + 260f, y, 220f, 26f), rows[row, 1], label);
+            GUI.Label(R(left + 480f, y, 220f, 26f), rows[row, 2], label);
+        }
+        label.alignment = TextAnchor.UpperCenter;
     }
 
     /// <summary>Rect in 720p layout units, converted to real pixels.</summary>

@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 /// <summary>
 /// Player weapons: target selection, missile lock-on, missiles and the gun.
@@ -54,10 +53,12 @@ public class WeaponSystem : MonoBehaviour
     float nextGunTime;
     float activeLockTime;
     float switchHeldTime;
+    int fullMissileAmmo;
 
     void Awake()
     {
         plane = GetComponent<PlaneController>();
+        fullMissileAmmo = missileAmmo;
         railReadyTime = new float[hardpoints != null ? hardpoints.Length : 0];
     }
 
@@ -70,27 +71,22 @@ public class WeaponSystem : MonoBehaviour
 
     public int RailCount => railReadyTime.Length;
 
+    /// <summary>Full missile load, all rails ready.</summary>
+    public void Rearm()
+    {
+        missileAmmo = fullMissileAmmo;
+        for (int i = 0; i < railReadyTime.Length; i++) railReadyTime[i] = 0f;
+    }
+
     void Update()
     {
-        bool switchHeld = false, missilePressed = false, gunHeld = false;
+        if (Time.timeScale <= 0f) return;
 
-        Keyboard kb = Keyboard.current;
-        if (kb != null)
-        {
-            switchHeld |= kb.tabKey.isPressed;
-            missilePressed |= kb.spaceKey.wasPressedThisFrame;
-            gunHeld |= kb.fKey.isPressed;
-        }
-        Mouse mouse = Mouse.current;
-        if (mouse != null) gunHeld |= mouse.leftButton.isPressed;
-
-        Gamepad pad = Gamepad.current;
-        if (pad != null)
-        {
-            switchHeld |= pad.buttonNorth.isPressed;
-            missilePressed |= pad.buttonEast.wasPressedThisFrame;
-            gunHeld |= pad.buttonSouth.isPressed;
-        }
+        FlightInput.State input = FlightInput.Current;
+        bool switchHeld = input.switchHeld;
+        // Weapons are safe while the wheels are on the ground.
+        bool missilePressed = input.missilePressed && !plane.IsGrounded;
+        bool gunHeld = input.gunHeld && !plane.IsGrounded;
 
         // One button, two jobs: a quick tap switches target, a hold swings the camera onto it.
         bool switchPressed = false;
@@ -243,6 +239,7 @@ public class WeaponSystem : MonoBehaviour
             missile.Launch(IsLocked ? CurrentTarget : null, transform, plane.Speed);
             railReadyTime[i] = Time.time + missileReload;
             missileAmmo--;
+            Rumble.Pulse(0.35f, 0.7f, 0.2f);
             return;
         }
     }
@@ -251,6 +248,7 @@ public class WeaponSystem : MonoBehaviour
     {
         if (bulletPrefab == null || gunMuzzle == null) return;
         nextGunTime = Time.time + 1f / gunFireRate;
+        Rumble.Pulse(0.1f, 0.4f, 0.08f);
 
         Vector2 spread = Random.insideUnitCircle * gunSpread;
         Quaternion rotation = gunMuzzle.rotation * Quaternion.Euler(spread.x, spread.y, 0f);
