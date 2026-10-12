@@ -35,7 +35,8 @@ public static class GraphicsBuilder
         BuildGroundTargets(log);
         BuildCarrier(log);
         BuildWorld(log);
-        BuildTerrainPaint(log);
+        // The real-world map's terrain is photographed, not painted.
+        if (GameObject.Find("SanDiego") == null) BuildTerrainPaint(log);
         ApplyQuality(log);
 
         AssetDatabase.SaveAssets();

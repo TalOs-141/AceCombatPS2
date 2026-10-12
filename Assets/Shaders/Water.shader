@@ -20,11 +20,14 @@ Shader "AceCombat/Water"
         _Reflectivity ("Sky reflection", Range(0, 1)) = 0.75
         _SunGlitter ("Sun glitter", Range(0, 4)) = 1.4
         _SunSharpness ("Sun glitter sharpness", Float) = 260
+        _Foam ("Shoreline foam", Range(0, 1)) = 1
     }
 
     SubShader
     {
-        Tags { "RenderType" = "Opaque" "Queue" = "Geometry" "RenderPipeline" = "UniversalPipeline" }
+        // Drawn just before other see-through things: the surface fades out toward the shore,
+        // letting the real shoreline underneath show through.
+        Tags { "RenderType" = "Transparent" "Queue" = "Transparent-100" "RenderPipeline" = "UniversalPipeline" }
 
         HLSLINCLUDE
         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -41,6 +44,7 @@ Shader "AceCombat/Water"
             float _Reflectivity;
             float _SunGlitter;
             float _SunSharpness;
+            float _Foam;
         CBUFFER_END
         ENDHLSL
 
@@ -48,6 +52,8 @@ Shader "AceCombat/Water"
         {
             Name "Forward"
             Tags { "LightMode" = "UniversalForward" }
+            Blend SrcAlpha OneMinusSrcAlpha
+            ZWrite On
 
             HLSLPROGRAM
             #pragma vertex Vert
@@ -109,6 +115,8 @@ Shader "AceCombat/Water"
                 // Depth-based colour, and foam where the water runs out onto the beach.
                 float2 mapUV = xz / _WorldSize + 0.5;
                 float depth = SAMPLE_TEXTURE2D(_ShoreDepth, sampler_ShoreDepth, mapUV).r;
+                // Beyond the mapped area it is all open sea.
+                if (mapUV.x < 0.0 || mapUV.x > 1.0 || mapUV.y < 0.0 || mapUV.y > 1.0) depth = 1.0;
                 float3 water = lerp(_ShallowColor.rgb, _DeepColor.rgb, saturate(pow(depth, 0.6)));
 
                 Light sun = GetMainLight();
@@ -127,10 +135,10 @@ Shader "AceCombat/Water"
 
                 float foamNoise = ripple.x * 0.5 + chop.y * 0.5;
                 float foam = saturate(1.0 - depth * 9.0 + foamNoise * 0.45) * step(depth, 0.2);
-                color = lerp(color, _FoamColor.rgb * sun.color, saturate(foam) * 0.85);
+                color = lerp(color, _FoamColor.rgb * sun.color, saturate(foam) * 0.85 * _Foam);
 
                 color = MixFog(color, input.fogFactor);
-                return half4(color, 1.0);
+                return half4(color, saturate(depth * 3.0));
             }
             ENDHLSL
         }
