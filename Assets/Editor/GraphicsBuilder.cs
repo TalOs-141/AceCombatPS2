@@ -33,6 +33,7 @@ public static class GraphicsBuilder
         BuildAircraft(log);
         BuildEffects(log);
         BuildGroundTargets(log);
+        BuildCarrier(log);
         BuildWorld(log);
         BuildTerrainPaint(log);
         ApplyQuality(log);
@@ -618,6 +619,146 @@ public static class GraphicsBuilder
         log.Add("tank, SAM launcher, hangar and radar station remodelled");
     }
 
+    // ----------------------------------------------------------------- carrier
+
+    /// <summary>
+    /// Replaces the carrier's box visuals with a proper ship: flared hull, shaped
+    /// flight deck with markings, island with bridge and masts, and aircraft
+    /// parked on deck. The existing colliders and landing surface are kept.
+    /// </summary>
+    static void BuildCarrier(List<string> log)
+    {
+        GameObject carrier = GameObject.Find("Carrier");
+        if (carrier == null) return;
+
+        for (int i = carrier.transform.childCount - 1; i >= 0; i--)
+        {
+            Transform child = carrier.transform.GetChild(i);
+            if (child.GetComponent<Collider>() != null)
+            {
+                // Solid parts stay for collisions, but the new model does the looking-good.
+                var old = child.GetComponent<Renderer>();
+                if (old != null) old.enabled = false;
+            }
+            else if (child.name != "Touchdown") Object.DestroyImmediate(child.gameObject);
+        }
+
+        Material hull = Mat("CarrierGrey", Lit, new Color(0.44f, 0.47f, 0.5f), null, 0.25f);
+        Material boot = Mat("CarrierBoot", Lit, new Color(0.1f, 0.1f, 0.12f), null, 0.2f);
+        Material antifoul = Mat("CarrierRed", Lit, new Color(0.36f, 0.1f, 0.08f), null, 0.15f);
+        Texture2D asphalt = ThirdParty("Asphalt031", false);
+        Material deck = Mat("CarrierDeckSurface", Lit, new Color(0.5f, 0.5f, 0.52f), asphalt, 0.1f);
+        Material white = Mat("CarrierPaintWhite", Unlit, new Color(0.9f, 0.9f, 0.86f));
+        Material yellow = Mat("CarrierPaintYellow", Unlit, new Color(0.9f, 0.75f, 0.2f));
+        Material glass = Mat("CarrierGlass", Lit, new Color(0.06f, 0.1f, 0.14f), null, 0.9f);
+        Material light = Mat("CarrierLight", Unlit, new Color(1f, 0.92f, 0.65f));
+        Material radome = Mat("CarrierRadome", Lit, new Color(0.88f, 0.88f, 0.85f), null, 0.4f);
+
+        var k = new MeshKit();
+        const float deckTop = 20f, deckUnder = 19.2f, paint = 20.04f;
+
+        // Hull: grey topsides, a black boot stripe at the waterline, red below it.
+        k.Hull(hull, new[]
+        {
+            new Vector3(-166f, 17f, 15.5f), new Vector3(-130f, 19.5f, 18f), new Vector3(0f, 20f, 18.5f),
+            new Vector3(90f, 19.5f, 17f), new Vector3(130f, 15f, 11f), new Vector3(155f, 8f, 4.6f), new Vector3(171f, 0.6f, 0.4f),
+        }, deckUnder, 1.2f);
+        k.Hull(boot, new[]
+        {
+            new Vector3(-166f, 15.5f, 15.2f), new Vector3(-130f, 18f, 17.6f), new Vector3(0f, 18.5f, 18.1f),
+            new Vector3(90f, 17f, 16.6f), new Vector3(130f, 11f, 10.6f), new Vector3(155f, 4.6f, 4.3f), new Vector3(171f, 0.4f, 0.3f),
+        }, 1.2f, -0.6f);
+        k.Hull(antifoul, new[]
+        {
+            new Vector3(-166f, 15.2f, 12f), new Vector3(-130f, 17.6f, 15f), new Vector3(0f, 18.1f, 16f),
+            new Vector3(90f, 16.6f, 13f), new Vector3(130f, 10.6f, 7f), new Vector3(155f, 4.3f, 2f), new Vector3(170f, 0.3f, 0.1f),
+        }, -0.6f, -7f);
+
+        // Flight deck: wider than the hull, with the angled landing area swept out to port.
+        k.Prism(hull, deck, new[]
+        {
+            new Vector2(-13f, 168f), new Vector2(15f, 168f), new Vector2(27f, 120f), new Vector2(39f, 60f),
+            new Vector2(42f, -40f), new Vector2(41f, -150f), new Vector2(31f, -166f), new Vector2(-25f, -166f),
+            new Vector2(-34f, -128f), new Vector2(-34f, 40f), new Vector2(-23f, 112f),
+        }, deckUnder, deckTop, 18f);
+
+        // Catwalks and sponsons under the deck edge.
+        k.Box(hull, hull, new Vector3(-27f, 15.5f, -45f), 12f, 170f, 3.7f);
+        k.Box(hull, hull, new Vector3(31f, 15.5f, 5f), 14f, 190f, 3.7f);
+        for (float z = -150f; z <= 150f; z += 30f) k.Box(boot, null, new Vector3(-20.5f, 10f, z), 0.5f, 6f, 5f);
+
+        // Island: stacked superstructure with a band of bridge windows, funnel, masts and radars.
+        Vector3 island = new Vector3(34f, deckTop, -28f);
+        k.Box(hull, boot, island, 10f, 36f, 11f);
+        k.Box(hull, boot, island + new Vector3(0f, 11f, 2f), 9f, 26f, 5f);
+        k.Box(glass, hull, island + new Vector3(-0.2f, 16f, 5f), 9.8f, 17f, 2.3f);
+        k.Box(hull, boot, island + new Vector3(0f, 18.3f, 5f), 10.6f, 18f, 1.2f);
+        k.Box(boot, boot, island + new Vector3(0.5f, 11f, -13f), 6f, 9f, 13f);
+        k.Box(boot, null, island + new Vector3(0f, 19.5f, 6f), 0.9f, 0.9f, 18f);
+        k.Box(boot, null, island + new Vector3(0f, 31f, 6f), 9f, 0.5f, 0.5f);
+        k.Box(boot, null, island + new Vector3(0f, 27f, 6f), 6f, 0.4f, 0.4f);
+        k.Box(hull, hull, island + new Vector3(0f, 22.5f, 8.5f), 6f, 2.4f, 2.6f);
+        k.Dome(radome, island + new Vector3(0f, 19.5f, -4f), 2.4f, 10, 4, 1f, true);
+        k.Dome(radome, island + new Vector3(0f, 24f, -14f), 1.8f, 10, 4, 1f, true);
+        k.Box(yellow, yellow, island + new Vector3(0f, 0f, 22f), 4f, 6f, 5f);
+
+        // Deck paint.
+        k.GroundRect(white, new Vector3(0f, paint, 0f), 0.8f, 320f);
+        foreach (float side in new[] { -1f, 1f }) k.GroundRect(white, new Vector3(side * 14f, paint, -50f), 0.6f, 230f);
+        k.GroundRect(white, new Vector3(0f, paint, -115f), 26f, 2.5f);
+        k.GroundRect(yellow, new Vector3(-13f, paint, -40f), 0.8f, 250f, -7f);
+        k.GroundRect(white, new Vector3(-27f, paint, -45f), 0.6f, 240f, -7f);
+        k.GroundRect(white, new Vector3(1f, paint, -35f), 0.6f, 240f, -7f);
+        // Catapult tracks on the bow and waist, and the lift outlines.
+        foreach (float x in new[] { -6f, 7f }) k.GroundRect(boot, new Vector3(x, paint, 100f), 0.7f, 120f);
+        k.GroundRect(boot, new Vector3(-22f, paint, 20f), 0.7f, 100f, -7f);
+        foreach (Vector2 lift in new[] { new Vector2(35f, 70f), new Vector2(35f, -95f), new Vector2(-28f, -70f) })
+        {
+            k.GroundRect(yellow, new Vector3(lift.x, paint, lift.y), 13f, 27f);
+            k.GroundRect(deck, new Vector3(lift.x, paint + 0.01f, lift.y), 12f, 26f, 0f, 18f);
+        }
+        // Red-and-white foul line keeping parked aircraft clear of the landing area.
+        for (int n = 0; n < 38; n++) k.GroundRect(n % 2 == 0 ? white : yellow, new Vector3(20f, paint, -150f + n * 8f), 0.6f, 4f);
+        // Arrestor wires and deck-edge lights.
+        for (int i = 0; i < 4; i++) k.Box(boot, null, new Vector3(0f, deckTop, -105f + i * 12f), 27f, 0.4f, 0.12f);
+        for (float z = -160f; z <= 160f; z += 12f)
+        {
+            k.Box(light, light, new Vector3(-14.5f, deckTop, z), 0.5f, 0.5f, 0.25f);
+            k.Box(light, light, new Vector3(14.5f, deckTop, z), 0.5f, 0.5f, 0.25f);
+        }
+
+        Part(carrier.transform, "CarrierModel", k, Vector3.zero, Vector3.zero);
+
+        // Aircraft parked along the starboard side, clear of the catapults and the landing area.
+        Mesh jet = AssetDatabase.LoadAssetAtPath<Mesh>(Dir + "/JetMesh.asset");
+        var jetMaterials = new[]
+        {
+            AssetDatabase.LoadAssetAtPath<Material>(Dir + "/JetPlayer.mat"),
+            AssetDatabase.LoadAssetAtPath<Material>(Dir + "/JetCanopy.mat"),
+            AssetDatabase.LoadAssetAtPath<Material>(Dir + "/JetTrim.mat"),
+        };
+        var parked = new GameObject("Parked Aircraft").transform;
+        parked.SetParent(carrier.transform, false);
+        float[] spots = { 12f, 30f, 48f, 112f, 130f, -66f, -124f };
+        var stands = new MeshKit();
+        for (int i = 0; i < spots.Length; i++)
+        {
+            var go = new GameObject("Parked Jet", typeof(MeshFilter), typeof(MeshRenderer));
+            go.transform.SetParent(parked, false);
+            float x = spots[i] > 100f ? 19f : 31f;
+            go.transform.localPosition = new Vector3(x, deckTop + 1.9f, spots[i]);
+            go.transform.localRotation = Quaternion.Euler(0f, 215f + (i % 2) * 10f, 0f);
+            go.GetComponent<MeshFilter>().sharedMesh = jet;
+            go.GetComponent<MeshRenderer>().sharedMaterials = jetMaterials;
+            foreach (Vector3 leg in new[] { new Vector3(0f, 0f, 4.2f), new Vector3(-1.7f, 0f, -1.6f), new Vector3(1.7f, 0f, -1.6f) })
+                stands.Box(boot, null, go.transform.localPosition + go.transform.localRotation * leg + Vector3.down * 1.9f, 0.3f, 0.3f, 1.4f);
+        }
+        Part(carrier.transform, "ParkedStands", stands, Vector3.zero, Vector3.zero);
+
+        EditorUtility.SetDirty(carrier);
+        log.Add($"carrier rebuilt with {spots.Length} parked aircraft");
+    }
+
     // ----------------------------------------------------------------- effects
 
     static void BuildEffects(List<string> log)
@@ -763,29 +904,24 @@ public static class GraphicsBuilder
 
     // ------------------------------------------------------------------- world
 
-    static void BuildWorld(List<string> log)
+    internal static void BuildWorld(List<string> log)
     {
         GameObject arena = GameObject.Find("Arena");
         if (arena == null) return;
 
-        // Sea: wave bands and whitecaps give the surface something to judge height against.
-        Texture2D waterTex = Tex("WaterTex", 512, false, (u, v, x, y) =>
-        {
-            float swell = TileFbm(u, v, 2.6f, 5f, 4);
-            float chop = TileFbm(u, v, 11f, 21f, 2);
-            Color c = Color.Lerp(new Color(0.02f, 0.11f, 0.24f), new Color(0.16f, 0.46f, 0.58f), Step(0.4f, 0.6f, swell * 0.65f + chop * 0.35f));
-            float cap = Step(0.53f, 0.58f, chop) * Step(0.47f, 0.54f, swell);
-            return Color.Lerp(c, new Color(0.92f, 0.96f, 0.98f), cap * 0.7f);
-        });
+        // Sea: shaded by Assets/Shaders/Water.shader, which needs two generated maps.
         Transform sea = arena.transform.Find("Sea");
-        if (sea != null)
+        Shader waterShader = Shader.Find("AceCombat/Water");
+        if (sea != null && waterShader != null)
         {
-            Material water = Mat("Water", Lit, Color.white, waterTex, 0.3f);
-            water.SetTextureScale("_BaseMap", new Vector2(WorldSize / 430f, WorldSize / 430f));
-            sea.GetComponent<Renderer>().sharedMaterial = water;
+            var water = new Material(waterShader);
+            water.SetTexture("_WaveNormals", WaveSlopes());
+            water.SetTexture("_ShoreDepth", ShoreDepth());
+            water.SetFloat("_WorldSize", WorldSize);
+            sea.GetComponent<Renderer>().sharedMaterial = Save(water, "Water", "mat");
+            // The shader animates itself; the old texture scroller is no longer needed.
             var scroll = sea.GetComponent<ScrollTexture>();
-            if (scroll == null) scroll = sea.gameObject.AddComponent<ScrollTexture>();
-            scroll.speed = new Vector2(0.006f, 0.0025f);
+            if (scroll != null) Object.DestroyImmediate(scroll);
         }
 
         // Cloud layer above the highest peaks.
@@ -843,6 +979,69 @@ public static class GraphicsBuilder
         log.Add("sea, clouds and buildings textured");
     }
 
+    /// <summary>
+    /// A tiling field of ripples, stored as the surface's slope in X (red) and Z (green).
+    /// The water shader overlays several copies at different sizes and speeds.
+    /// </summary>
+    static Texture2D WaveSlopes()
+    {
+        const int size = 256;
+        var height = new float[size, size];
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+                height[y, x] = TileFbm((x + 0.5f) / size, (y + 0.5f) / size, 3f, 5f, 4);
+
+        var slope = new Vector2[size * size];
+        float steepest = 0.0001f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                // Differences wrap round the edges so the texture tiles seamlessly.
+                float dx = height[y, (x + 1) % size] - height[y, (x + size - 1) % size];
+                float dy = height[(y + 1) % size, x] - height[(y + size - 1) % size, x];
+                slope[y * size + x] = new Vector2(dx, dy);
+                steepest = Mathf.Max(steepest, Mathf.Abs(dx), Mathf.Abs(dy));
+            }
+        }
+
+        // Linear (not sRGB) data: these are numbers for the shader, not colours.
+        var texture = new Texture2D(size, size, TextureFormat.RGB24, true, true) { wrapMode = TextureWrapMode.Repeat, anisoLevel = 8 };
+        var pixels = new Color[size * size];
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = new Color(slope[i].x / steepest * 0.5f + 0.5f, slope[i].y / steepest * 0.5f + 0.5f, 1f);
+        texture.SetPixels(pixels);
+        texture.Apply(true);
+        return Save(texture, "WaveSlopes");
+    }
+
+    /// <summary>How deep the water is across the map: black at the waterline, white once it is properly deep.</summary>
+    static Texture2D ShoreDepth()
+    {
+        const int size = 1024;
+        const float seaLevel = -1.5f;
+        Terrain terrain = Terrain.activeTerrain;
+        var texture = new Texture2D(size, size, TextureFormat.RGB24, true, true) { wrapMode = TextureWrapMode.Clamp };
+        var pixels = new Color[size * size];
+        TerrainData data = terrain != null ? terrain.terrainData : null;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float depth = 1f;
+                if (data != null)
+                {
+                    float ground = data.GetInterpolatedHeight((x + 0.5f) / size, (y + 0.5f) / size) - SeaFloor;
+                    depth = Mathf.Clamp01((seaLevel - ground) / (SeaFloor + seaLevel));
+                }
+                pixels[y * size + x] = new Color(depth, depth, depth);
+            }
+        }
+        texture.SetPixels(pixels);
+        texture.Apply(true);
+        return Save(texture, "ShoreDepth");
+    }
+
     static Material BuildingMat(string name, Texture2D texture, Color tint, Vector2 tiling)
     {
         Material m = Mat(name, Lit, tint, texture, 0.1f);
@@ -852,10 +1051,216 @@ public static class GraphicsBuilder
 
     // ----------------------------------------------------------------- terrain
 
-    static TerrainLayer Layer(string name, Texture2D texture, float tile)
+    /// <summary>Loads one of the downloaded ambientCG maps, fixing its import settings the first time.</summary>
+    internal static Texture2D ThirdParty(string asset, bool normalMap)
     {
-        var layer = new TerrainLayer { diffuseTexture = texture, tileSize = new Vector2(tile, tile), smoothness = 0f, metallic = 0f };
+        string path = $"Assets/ThirdParty/ambientCG/{asset}/{asset}_1K-JPG_{(normalMap ? "NormalGL" : "Color")}.jpg";
+        var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+        if (importer == null) return null;
+
+        TextureImporterType wanted = normalMap ? TextureImporterType.NormalMap : TextureImporterType.Default;
+        if (importer.textureType != wanted || importer.anisoLevel != 8)
+        {
+            importer.textureType = wanted;
+            importer.anisoLevel = 8;
+            importer.SaveAndReimport();
+        }
+        return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+    }
+
+    /// <param name="brighten">Multiplies the texture's colour; used to lift photos that are darker than the landscape needs.</param>
+    static TerrainLayer Layer(string name, Texture2D texture, float tile, Texture2D normal = null, float brighten = 1f)
+    {
+        var layer = new TerrainLayer
+        {
+            diffuseTexture = texture,
+            normalMapTexture = normal,
+            tileSize = new Vector2(tile, tile),
+            smoothness = 0f,
+            metallic = 0f,
+            diffuseRemapMax = new Vector4(brighten, brighten, brighten, 1f),
+        };
         return Save(layer, name, "terrainlayer");
+    }
+
+    /// <summary>Road centre lines to draw into the overlay; filled in by the world builder.</summary>
+    internal static readonly List<List<Vector3>> OverlayRoads = new List<List<Vector3>>();
+
+    const int OverlaySize = 4096;
+    const string OverlayPath = Dir + "/TerrainOverlay.png";
+
+    /// <summary>
+    /// Paints one large aerial-photo-style picture of the whole map from the
+    /// terrain's shape: every pixel is coloured by what would be there (rock
+    /// on steep ground, snow up high, woodland, individual farm plots, beach,
+    /// the city's street grid, roads) and shaded by the slope it lies on.
+    /// Unlike a tiled texture, nothing in it repeats.
+    /// </summary>
+    static Texture2D BakeOverlay(TerrainData data, List<string> log)
+    {
+        int res = data.heightmapResolution;
+        float[,] heightmap = data.GetHeights(0, 0, res, res);
+        float cell = WorldSize / (res - 1);
+        const int size = OverlaySize;
+        float metresPerPixel = WorldSize / size;
+
+        // Height in metres above sea level at a world position.
+        float Height(float wx, float wz)
+        {
+            float fx = Mathf.Clamp((wx / WorldSize + 0.5f) * (res - 1), 0f, res - 1.001f);
+            float fz = Mathf.Clamp((wz / WorldSize + 0.5f) * (res - 1), 0f, res - 1.001f);
+            int x = (int)fx, z = (int)fz;
+            float tx = fx - x, tz = fz - z;
+            float h = Mathf.Lerp(Mathf.Lerp(heightmap[z, x], heightmap[z, x + 1], tx), Mathf.Lerp(heightmap[z + 1, x], heightmap[z + 1, x + 1], tx), tz);
+            return h * WorldLayout.MaxHeight - SeaFloor;
+        }
+
+        // Roads are stamped into a mask first, a few pixels wide.
+        var roadMask = new byte[size * size];
+        foreach (List<Vector3> line in OverlayRoads)
+        {
+            for (int i = 1; i < line.Count; i++)
+            {
+                int steps = Mathf.Max(1, Mathf.CeilToInt(Vector3.Distance(line[i], line[i - 1]) / (metresPerPixel * 0.5f)));
+                for (int s = 0; s <= steps; s++)
+                {
+                    Vector3 p = Vector3.Lerp(line[i - 1], line[i], s / (float)steps);
+                    int px = (int)((p.x / WorldSize + 0.5f) * size), pz = (int)((p.z / WorldSize + 0.5f) * size);
+                    for (int dz = -1; dz <= 1; dz++)
+                        for (int dx = -1; dx <= 1; dx++)
+                        {
+                            int x = px + dx, z = pz + dz;
+                            if (x >= 0 && z >= 0 && x < size && z < size) roadMask[z * size + x] = 255;
+                        }
+                }
+            }
+        }
+
+        Light sunLight = RenderSettings.sun != null ? RenderSettings.sun : Object.FindFirstObjectByType<Light>();
+        Vector3 sun = sunLight != null ? -sunLight.transform.forward : new Vector3(0.4f, 0.8f, 0.45f).normalized;
+
+        Color dryGrass = new Color(0.44f, 0.45f, 0.23f), lushGrass = new Color(0.19f, 0.35f, 0.13f);
+        Color tundra = new Color(0.43f, 0.39f, 0.29f), sand = new Color(0.78f, 0.72f, 0.54f);
+        Color forestDark = new Color(0.05f, 0.14f, 0.07f), forestLight = new Color(0.13f, 0.25f, 0.11f);
+        Color rockDark = new Color(0.31f, 0.28f, 0.26f), rockLight = new Color(0.57f, 0.53f, 0.48f);
+        Color snowColor = new Color(0.94f, 0.96f, 0.99f), roadColor = new Color(0.33f, 0.31f, 0.29f);
+        Color[] crops =
+        {
+            new Color(0.30f, 0.44f, 0.18f), new Color(0.47f, 0.52f, 0.22f), new Color(0.62f, 0.56f, 0.30f),
+            new Color(0.42f, 0.32f, 0.21f), new Color(0.24f, 0.38f, 0.16f), new Color(0.70f, 0.64f, 0.36f),
+        };
+        Rect city = WorldLayout.City;
+
+        var pixels = new Color32[size * size];
+        for (int py = 0; py < size; py++)
+        {
+            float v = (py + 0.5f) / size, wz = (v - 0.5f) * WorldSize;
+            for (int px = 0; px < size; px++)
+            {
+                float u = (px + 0.5f) / size, wx = (u - 0.5f) * WorldSize;
+
+                float h = Height(wx, wz);
+                float gx = (Height(wx + cell, wz) - Height(wx - cell, wz)) / (2f * cell);
+                float gz = (Height(wx, wz + cell) - Height(wx, wz - cell)) / (2f * cell);
+                float slope = Mathf.Atan(Mathf.Sqrt(gx * gx + gz * gz)) * Mathf.Rad2Deg;
+                Vector3 normal = new Vector3(-gx, 1f, -gz).normalized;
+
+                float broad = Mathf.PerlinNoise(wx / 2600f + 11f, wz / 2600f + 7f);
+                float mid = Mathf.PerlinNoise(wx / 420f + 3f, wz / 420f + 19f);
+                float fine = Mathf.PerlinNoise(wx / 55f + 41f, wz / 55f + 5f);
+
+                // Grassland, drier and browner with altitude.
+                Color c = Color.Lerp(dryGrass, lushGrass, broad * 0.65f + mid * 0.35f) * (0.9f + fine * 0.2f);
+                c = Color.Lerp(c, tundra, Step(550f, 950f, h + (mid - 0.5f) * 220f));
+
+                // Farmland on flat valley floors: each plot gets its own crop and furrow direction.
+                float flat = 1f - Step(3f, 7f, slope);
+                float low = 1f - Step(90f, 180f, h);
+                float farm = Step(0.42f, 0.5f, Mathf.PerlinNoise(u * 9f + 4f, v * 9f + 9f));
+                float fieldsW = flat * low * farm;
+                if (fieldsW > 0.01f)
+                {
+                    // The field pattern turns to a different angle from district to district.
+                    float angle = Mathf.Floor(Mathf.PerlinNoise(wx / 3500f + 60f, wz / 3500f + 80f) * 5f) * 0.4f;
+                    float ca = Mathf.Cos(angle), sa = Mathf.Sin(angle);
+                    float rx = wx * ca - wz * sa, rz = wx * sa + wz * ca;
+                    float fxp = rx / 230f, fzp = rz / 140f;
+                    int ix = Mathf.FloorToInt(fxp), iz = Mathf.FloorToInt(fzp);
+                    float inX = fxp - ix, inZ = fzp - iz;
+                    Color crop = crops[(int)(Hash(ix, iz, 7) * 5.99f)];
+                    float furrow = Mathf.Sin((Hash(ix, iz, 19) > 0.5f ? rx : rz) * 0.55f) * 0.05f;
+                    crop *= 0.93f + Hash(ix, iz, 3) * 0.14f + furrow;
+                    bool hedge = inX < 0.035f || inZ < 0.05f;
+                    c = Color.Lerp(c, hedge ? forestDark * 1.4f : crop, fieldsW);
+                }
+
+                // Woodland, on the same patches the trees are planted on.
+                float woods = Step(0.45f, 0.58f, Mathf.PerlinNoise(u * 26f + 30f, v * 26f + 50f));
+                float treeline = 1f - Step(700f, 950f, h);
+                float crowns = Mathf.PerlinNoise(wx / 13f, wz / 13f);
+                c = Color.Lerp(c, Color.Lerp(forestDark, forestLight, crowns), woods * treeline * (1f - fieldsW));
+
+                // Bare rock on steep ground, with layered strata; snow above the snow line; sand at the waterline.
+                float rockW = Step(16f, 30f, slope + (fine - 0.5f) * 8f);
+                float strata = Mathf.PerlinNoise(wx / 160f + 9f, h / 22f);
+                c = Color.Lerp(c, Color.Lerp(rockDark, rockLight, strata * 0.7f + fine * 0.3f), rockW);
+                float snowW = Step(1000f, 1350f, h + (mid - 0.5f) * 300f) * (1f - rockW * 0.45f);
+                c = Color.Lerp(c, snowColor, snowW);
+                c = Color.Lerp(c, sand, 1f - Step(-2f, 3.5f, h));
+
+                // Mown grass around the airport.
+                float airfield = 1f - Step(1f, 1.25f, Mathf.Sqrt((wx / 800f) * (wx / 800f) + (wz / 1750f) * (wz / 1750f)));
+                c = Color.Lerp(c, new Color(0.36f, 0.46f, 0.22f) * (0.94f + fine * 0.12f), airfield * 0.75f);
+
+                // Built-up ground: pale blocks divided by darker streets.
+                float urban = WorldLayout.UrbanWeight(wx, wz);
+                if (urban > 0f)
+                {
+                    float grey = 0.47f + fine * 0.1f;
+                    if (city.Contains(new Vector2(wx, wz)))
+                    {
+                        float bx = (wx - city.xMin) % 170f, bz = (wz - city.yMin) % 140f;
+                        if (bx < 10f || bx > 160f || bz < 10f || bz > 130f) grey = 0.24f;
+                    }
+                    c = Color.Lerp(c, new Color(grey, grey, grey * 1.02f), urban);
+                }
+
+                if (roadMask[py * size + px] != 0) c = Color.Lerp(c, roadColor, 0.85f);
+
+                // Gentle baked shading: enough to give the hills relief in the picture
+                // without doubling up on the live sunlight.
+                float lit = Mathf.Clamp01(Vector3.Dot(normal, sun) * 0.9f + 0.1f);
+                c *= Mathf.Lerp(0.8f, 1.08f, lit);
+
+                pixels[py * size + px] = new Color32(
+                    (byte)(Mathf.Clamp01(c.r) * 255f), (byte)(Mathf.Clamp01(c.g) * 255f), (byte)(Mathf.Clamp01(c.b) * 255f), 255);
+            }
+        }
+
+        // Written as a normal PNG so it can be opened and inspected like any picture.
+        var texture = new Texture2D(size, size, TextureFormat.RGB24, false);
+        texture.SetPixels32(pixels);
+        texture.Apply(false);
+        System.IO.File.WriteAllBytes(OverlayPath, texture.EncodeToPNG());
+        Object.DestroyImmediate(texture);
+        AssetDatabase.ImportAsset(OverlayPath, ImportAssetOptions.ForceUpdate);
+
+        var importer = (TextureImporter)AssetImporter.GetAtPath(OverlayPath);
+        // No alpha channel, and a compression format without one: the terrain shader reads
+        // a texture's alpha as glossiness, which would make the whole landscape look wet.
+        if (importer.maxTextureSize != size || importer.wrapMode != TextureWrapMode.Clamp
+            || importer.alphaSource != TextureImporterAlphaSource.None
+            || importer.textureCompression != TextureImporterCompression.Compressed)
+        {
+            importer.maxTextureSize = size;
+            importer.wrapMode = TextureWrapMode.Clamp;
+            importer.anisoLevel = 16;
+            importer.alphaSource = TextureImporterAlphaSource.None;
+            importer.textureCompression = TextureImporterCompression.Compressed;
+            importer.SaveAndReimport();
+        }
+        log.Add($"aerial overlay baked: {size} x {size} pixels, {metresPerPixel:0.0} m per pixel");
+        return AssetDatabase.LoadAssetAtPath<Texture2D>(OverlayPath);
     }
 
     internal static void BuildTerrainPaint(List<string> log)
@@ -918,19 +1323,36 @@ public static class GraphicsBuilder
             return new Color(n, n, n * 0.98f);
         });
 
+        // Fine soil texture for farmland; the plots themselves come from the overlay.
+        Texture2D crop = Tex("CropDetailTex", 128, false, (u, v, x, y) =>
+        {
+            float furrow = 0.5f + Mathf.Sin(u * Mathf.PI * 32f) * 0.07f + TileNoise(u, v, 14f, 6f) * 0.1f;
+            return new Color(furrow * 1.02f, furrow * 0.97f, furrow * 0.78f);
+        });
+        Texture2D overlay = BakeOverlay(data, log);
+
+        Texture2D grassPhoto = ThirdParty("Grass001", false);
+        Texture2D rockPhoto = ThirdParty("Rock058", false);
+
         data.terrainLayers = new[]
         {
-            Layer("GrassLayer", grass, 420f),
-            Layer("RockLayer", rock, 650f),
+            // Photo grass and rock from ambientCG when present. They tile much smaller than the
+            // generated versions, trading broad colour variation for detail when flying low.
+            grassPhoto != null ? Layer("GrassLayer", grassPhoto, 70f, ThirdParty("Grass001", true)) : Layer("GrassLayer", grass, 420f),
+            rockPhoto != null ? Layer("RockLayer", rockPhoto, 150f, ThirdParty("Rock058", true), 1.5f) : Layer("RockLayer", rock, 650f),
             Layer("SnowLayer", snow, 900f),
-            Layer("ForestLayer", forest, 380f),
-            Layer("FieldsLayer", fields, 1600f),
+            Layer("ForestLayer", forest, 160f),
+            Layer("FieldsLayer", crop, 45f),
             // Photo asphalt from ambientCG if it has been downloaded, otherwise the generated paving.
             Layer("PavedLayer", AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/ThirdParty/ambientCG/Asphalt031/Asphalt031_1K-JPG_Color.jpg") ?? paved, 45f),
+            // The aerial picture, stretched once over the entire map.
+            Layer("OverlayLayer", overlay, WorldSize),
         };
 
         int res = data.alphamapResolution;
-        var alpha = new float[res, res, 6];
+        // Share of the ground colour that comes from the close-up detail textures; the rest is the aerial picture.
+        const float detailShare = 0.36f;
+        var alpha = new float[res, res, 7];
         for (int z = 0; z < res; z++)
         {
             for (int x = 0; x < res; x++)
@@ -967,6 +1389,9 @@ public static class GraphicsBuilder
                 alpha[z, x, 3] = forestW * natural;
                 alpha[z, x, 4] = fieldsW * natural;
                 alpha[z, x, 5] = urban;
+
+                for (int layer = 0; layer < 6; layer++) alpha[z, x, layer] *= detailShare;
+                alpha[z, x, 6] = 1f - detailShare;
             }
         }
         data.SetAlphamaps(0, 0, alpha);

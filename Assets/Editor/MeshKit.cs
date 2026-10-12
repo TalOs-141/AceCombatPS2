@@ -199,6 +199,59 @@ public class MeshKit
             new Vector2(0f, 0f), new Vector2(u, 0f), new Vector2(u, v), new Vector2(0f, v));
     }
 
+    /// <summary>
+    /// Extrudes a flat outline (points given as X, Z) between two heights and caps the top.
+    /// The outline should be roughly convex. The top texture repeats every topTile metres.
+    /// </summary>
+    public void Prism(Material side, Material top, IList<Vector2> outline, float bottom, float topHeight, float topTile = 20f)
+    {
+        Vector2 centre = Vector2.zero;
+        foreach (Vector2 p in outline) centre += p;
+        centre /= outline.Count;
+
+        for (int i = 0; i < outline.Count; i++)
+        {
+            Vector2 a = outline[i], b = outline[(i + 1) % outline.Count];
+            Vector2 mid = (a + b) * 0.5f - centre;
+            Quad(side, new Vector3(a.x, bottom, a.y), new Vector3(b.x, bottom, b.y), new Vector3(b.x, topHeight, b.y), new Vector3(a.x, topHeight, a.y),
+                new Vector3(mid.x, 0f, mid.y));
+
+            if (top == null) continue;
+            int index = vertices.Count;
+            vertices.Add(new Vector3(centre.x, topHeight, centre.y));
+            vertices.Add(new Vector3(a.x, topHeight, a.y));
+            vertices.Add(new Vector3(b.x, topHeight, b.y));
+            uvs.Add(centre / topTile); uvs.Add(a / topTile); uvs.Add(b / topTile);
+            List<int> t = Triangles(top);
+            bool keep = Vector3.Cross(vertices[index + 1] - vertices[index], vertices[index + 2] - vertices[index]).y >= 0f;
+            t.Add(index); t.Add(keep ? index + 1 : index + 2); t.Add(keep ? index + 2 : index + 1);
+        }
+    }
+
+    /// <summary>
+    /// A ship's hull: cross-sections along Z, each wide at the top and narrower
+    /// at the bottom. Each section is (z, half-width at top, half-width at bottom).
+    /// </summary>
+    public void Hull(Material material, IList<Vector3> sections, float topHeight, float bottom)
+    {
+        for (int i = 0; i < sections.Count - 1; i++)
+        {
+            Vector3 a = sections[i], b = sections[i + 1];
+            foreach (float side in new[] { -1f, 1f })
+            {
+                Quad(material,
+                    new Vector3(side * a.y, topHeight, a.x), new Vector3(side * b.y, topHeight, b.x),
+                    new Vector3(side * b.z, bottom, b.x), new Vector3(side * a.z, bottom, a.x),
+                    new Vector3(side, 0.2f, 0f));
+            }
+        }
+        // Flat transom across the stern.
+        Vector3 stern = sections[0];
+        Quad(material,
+            new Vector3(-stern.y, topHeight, stern.x), new Vector3(stern.y, topHeight, stern.x),
+            new Vector3(stern.z, bottom, stern.x), new Vector3(-stern.z, bottom, stern.x), Vector3.back);
+    }
+
     public Mesh BuildMesh(string name, out Material[] usedMaterials)
     {
         var mesh = new Mesh { name = name, indexFormat = IndexFormat.UInt32 };

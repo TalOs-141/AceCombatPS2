@@ -20,6 +20,10 @@ subfolder; nothing here is edited by hand.
 | `Facade009` | Facade at night with lit rooms | Dark glass towers |
 | `Road007` | Two-lane road with markings | All roads |
 | `Asphalt031` | Plain asphalt | Paved ground under the city and port |
+| `Grass001` | Grass | Grassland on the terrain |
+| `Rock058` | Rock face | Cliffs and steep slopes (brightened) |
+| `Concrete034` | Concrete | Aprons, piers, quay walls |
+| `RoofingTiles013A` | Slate roof slabs | Grey house roofs; surface relief on all house roofs |
 
 The world builder (`Assets/Editor/WorldBuilder.cs`) picks these up automatically
 and falls back to generated textures if a folder is missing.

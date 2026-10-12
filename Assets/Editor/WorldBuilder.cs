@@ -23,7 +23,7 @@ public static class WorldBuilder
     // Materials, filled in by BuildMaterials.
     static Material road, concrete, roofGravel, corrugated, steel, rust, white, darkGlass, paint, lamp, pole;
     static Material[] towers, offices, flats, houseWalls, houseRoofs, containers, cars;
-    static Material hullRed, hullBlack, craneBlue, treeConifer, treeLeaf, trunk;
+    static Material hullRed, hullBlack, craneBlue, treeConifer, treeLeaf, trunk, pitch;
 
     [MenuItem("AceCombat/Rebuild World")]
     public static void BuildMenu() => Debug.Log(Build());
@@ -62,6 +62,11 @@ public static class WorldBuilder
 
         ApplyHeights(terrain);
 
+        // The aerial overlay draws these in, so roads show from high up too.
+        GraphicsBuilder.OverlayRoads.Clear();
+        GraphicsBuilder.OverlayRoads.Add(highway);
+        GraphicsBuilder.OverlayRoads.Add(mountainRoad);
+
         Kit("Roads").Strip(road, highway, 22f, 24f, 1.2f);
         Kit("Roads").Strip(road, mountainRoad, 12f, 24f, 1.2f);
         Lights("Roads", highway, 13f, 70f);
@@ -76,6 +81,8 @@ public static class WorldBuilder
         ApplyTrees(terrain, log);
         LiftAircraftClear();
 
+        // Sea shallows and the aerial overlay both depend on the final terrain shape.
+        GraphicsBuilder.BuildWorld(log);
         GraphicsBuilder.BuildTerrainPaint(log);
 
         AssetDatabase.SaveAssets();
@@ -354,23 +361,6 @@ public static class WorldBuilder
         });
     }
 
-    /// <summary>Loads one of the downloaded ambientCG maps, fixing its import settings the first time.</summary>
-    static Texture2D ThirdParty(string asset, bool normalMap)
-    {
-        string path = $"Assets/ThirdParty/ambientCG/{asset}/{asset}_1K-JPG_{(normalMap ? "NormalGL" : "Color")}.jpg";
-        var importer = AssetImporter.GetAtPath(path) as TextureImporter;
-        if (importer == null) return null;
-
-        TextureImporterType wanted = normalMap ? TextureImporterType.NormalMap : TextureImporterType.Default;
-        if (importer.textureType != wanted || importer.anisoLevel != 8)
-        {
-            importer.textureType = wanted;
-            importer.anisoLevel = 8;
-            importer.SaveAndReimport();
-        }
-        return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
-    }
-
     /// <summary>
     /// A material from a downloaded photo texture, or null if the files aren't there.
     /// tileMetres is how much real wall one copy of the picture covers; walls are
@@ -378,11 +368,11 @@ public static class WorldBuilder
     /// </summary>
     static Material Photo(string name, string asset, Color tint, float smoothness, Vector2 tileMetres, bool litWindows = false)
     {
-        Texture2D color = ThirdParty(asset, false);
+        Texture2D color = GraphicsBuilder.ThirdParty(asset, false);
         if (color == null) return null;
 
         Material m = Tinted(name, color, tint, smoothness);
-        Texture2D normal = ThirdParty(asset, true);
+        Texture2D normal = GraphicsBuilder.ThirdParty(asset, true);
         if (normal != null)
         {
             m.SetTexture("_BumpMap", normal);
@@ -399,6 +389,16 @@ public static class WorldBuilder
         }
         EditorUtility.SetDirty(m);
         return m;
+    }
+
+    /// <summary>Adds a downloaded material's normal map to a material, for surface relief.</summary>
+    static void WithRelief(Material material, string asset)
+    {
+        Texture2D normal = GraphicsBuilder.ThirdParty(asset, true);
+        if (normal == null) return;
+        material.SetTexture("_BumpMap", normal);
+        material.EnableKeyword("_NORMALMAP");
+        EditorUtility.SetDirty(material);
     }
 
     static Material Tinted(string name, Texture2D texture, Color tint, float smoothness = 0.2f)
@@ -462,6 +462,7 @@ public static class WorldBuilder
         hullRed = Plain("WorldHullRed", new Color(0.45f, 0.12f, 0.1f), 0.2f);
         hullBlack = Plain("WorldHullBlack", new Color(0.1f, 0.11f, 0.13f), 0.2f);
         craneBlue = Plain("WorldCrane", new Color(0.15f, 0.35f, 0.6f), 0.3f);
+        pitch = Plain("WorldPitch", new Color(0.2f, 0.45f, 0.18f), 0.05f);
         trunk = Plain("WorldTrunk", new Color(0.26f, 0.19f, 0.13f), 0.05f);
         treeConifer = Plain("WorldConifer", new Color(0.09f, 0.22f, 0.11f), 0.05f);
         treeLeaf = Plain("WorldLeaf", new Color(0.2f, 0.36f, 0.14f), 0.05f);
@@ -517,11 +518,27 @@ public static class WorldBuilder
         Material officeSlate = Photo("WorldPhotoOfficeSlate", "Facade006", new Color(0.72f, 0.78f, 0.86f), 0.3f, new Vector2(28f, 28f));
         if (officeWhite != null) offices = new[] { officeWhite, officeSand, officeSlate };
 
-        Texture2D roadPhoto = ThirdParty("Road007", false);
+        Texture2D concretePhoto = GraphicsBuilder.ThirdParty("Concrete034", false);
+        if (concretePhoto != null)
+        {
+            concrete = Tinted("WorldConcrete", concretePhoto, Color.white, 0.15f);
+            WithRelief(concrete, "Concrete034");
+        }
+
+        // The slate photo is nearly black, so it is brightened for grey roofs; the
+        // coloured roofs keep their generated tiles but borrow the slate's surface relief.
+        Texture2D slatePhoto = GraphicsBuilder.ThirdParty("RoofingTiles013A", false);
+        if (slatePhoto != null)
+        {
+            houseRoofs[1] = Tinted("WorldRoofSlate", slatePhoto, new Color(1.7f, 1.7f, 1.8f), 0.25f);
+            foreach (Material roof in houseRoofs) WithRelief(roof, "RoofingTiles013A");
+        }
+
+        Texture2D roadPhoto = GraphicsBuilder.ThirdParty("Road007", false);
         if (roadPhoto != null)
         {
             road = Tinted("WorldRoad", roadPhoto, Color.white, 0.15f);
-            Texture2D roadNormal = ThirdParty("Road007", true);
+            Texture2D roadNormal = GraphicsBuilder.ThirdParty("Road007", true);
             if (roadNormal != null)
             {
                 road.SetTexture("_BumpMap", roadNormal);
@@ -634,6 +651,10 @@ public static class WorldBuilder
                 // 0 at the centre of downtown, 1 at the city limits.
                 float fromCentre = Mathf.Max(Mathf.Abs(mid.x - centre.x) / (city.width * 0.5f), Mathf.Abs(mid.y - centre.y) / (city.height * 0.5f));
                 string kit = "City " + (mid.x < centre.x ? "West" : "East") + (mid.y < centre.y ? " South" : " North");
+                // Two landmarks each take over a whole block.
+                if (i == 7 && j == 13) { TvTower(kit, mid, y); continue; }
+                if (i == 15 && j == 4) { Stadium(kit, mid, y); continue; }
+
                 float roll = Rand(0f, 1f);
 
                 if (roll < 0.05f)
@@ -656,7 +677,7 @@ public static class WorldBuilder
             }
         }
 
-        log.Add($"city: {towerCount} towers, {midCount} mid-rise blocks, {houseCount} houses");
+        log.Add($"city: {towerCount} towers, {midCount} mid-rise buildings, {houseCount} houses, a broadcast tower and a stadium");
     }
 
     static void CityLightsAndCars(List<Vector3> line, float width, int seed)
@@ -676,6 +697,32 @@ public static class WorldBuilder
         }
     }
 
+    /// <summary>Plant, tanks, masts and the odd helipad, so roofs aren't bare.</summary>
+    static void RoofClutter(MeshKit k, Vector3 roofCentre, float width, float depth)
+    {
+        int units = rng.Next(2, 6);
+        for (int i = 0; i < units; i++)
+        {
+            Vector3 at = roofCentre + new Vector3(Rand(-0.36f, 0.36f) * width, 0f, Rand(-0.36f, 0.36f) * depth);
+            k.Box(corrugated, roofGravel, at, Rand(3f, 7f), Rand(2.5f, 6f), Rand(1.5f, 3.2f), rng.Next(2) * 90f);
+        }
+        if (rng.Next(3) == 0)
+        {
+            Vector3 at = roofCentre + new Vector3(Rand(-0.3f, 0.3f) * width, 0f, Rand(-0.3f, 0.3f) * depth);
+            k.Cylinder(steel, steel, at + Vector3.up * 2f, 2.4f, 4f, 10);
+            k.Box(pole, null, at, 3.5f, 3.5f, 2f);
+        }
+        if (rng.Next(4) == 0 && width > 30f && depth > 30f)
+        {
+            // Helipad: a white ring with a dark centre.
+            k.Cylinder(paint, paint, roofCentre, 8f, 0.2f, 18);
+            k.Cylinder(roofGravel, roofGravel, roofCentre + Vector3.up * 0.1f, 6.8f, 0.2f, 18);
+            k.Box(paint, paint, roofCentre + Vector3.up * 0.25f, 1f, 6f, 0.1f);
+        }
+        if (rng.Next(3) == 0)
+            k.Box(pole, null, roofCentre + new Vector3(Rand(-0.3f, 0.3f) * width, 0f, Rand(-0.3f, 0.3f) * depth), 0.5f, 0.5f, Rand(8f, 22f));
+    }
+
     static int Downtown(string kit, float x0, float x1, float z0, float z1, float y, float fromCentre)
     {
         int count = rng.Next(1, 3);
@@ -688,17 +735,71 @@ public static class WorldBuilder
             Vector3 foot = new Vector3(x0 + slot * (n + 0.5f), y, (z0 + z1) * 0.5f + Rand(-6f, 6f));
             Material skin = Pick(towers);
             MeshKit k = Kit(kit);
+            const float podium = 9f;
 
-            // A low podium, the main shaft, and sometimes a narrower crown.
-            k.Box(Pick(offices), roofGravel, foot, width + 6f, depth + 6f, 9f, 0f, 32f, 28f, Rand(0f, 1f));
-            bool crowned = rng.Next(3) > 0;
-            float shaft = crowned ? height * Rand(0.6f, 0.8f) : height;
-            k.Box(skin, roofGravel, foot + Vector3.up * 9f, width, depth, shaft - 9f, 0f, 32f, 28f, Rand(0f, 1f));
-            if (crowned)
+            // Every tower stands on a low podium; what rises from it varies.
+            k.Box(Pick(offices), roofGravel, foot, width + 6f, depth + 6f, podium, 0f, 32f, 28f, Rand(0f, 1f));
+            Vector3 deck = foot + Vector3.up * podium;
+            switch (rng.Next(6))
             {
-                k.Box(skin, roofGravel, foot + Vector3.up * shaft, width * 0.7f, depth * 0.7f, height - shaft, 0f, 32f, 28f, Rand(0f, 1f));
-                // Rooftop mast.
-                if (rng.Next(2) == 0) k.Box(pole, null, foot + Vector3.up * height, 1.2f, 1.2f, Rand(15f, 40f));
+                case 0: // Plain slab-sided shaft.
+                    k.Box(skin, roofGravel, deck, width, depth, height - podium, 0f, 32f, 28f, Rand(0f, 1f));
+                    RoofClutter(k, foot + Vector3.up * height, width, depth);
+                    break;
+
+                case 1: // Shaft with a narrower crown and mast.
+                {
+                    float shaft = height * Rand(0.6f, 0.8f);
+                    k.Box(skin, roofGravel, deck, width, depth, shaft - podium, 0f, 32f, 28f, Rand(0f, 1f));
+                    k.Box(skin, roofGravel, foot + Vector3.up * shaft, width * 0.7f, depth * 0.7f, height - shaft, 0f, 32f, 28f, Rand(0f, 1f));
+                    k.Box(pole, null, foot + Vector3.up * height, 1.2f, 1.2f, Rand(15f, 40f));
+                    break;
+                }
+
+                case 2: // Stepped tiers narrowing toward a spire.
+                {
+                    int tiers = rng.Next(3, 5);
+                    float tierHeight = (height - podium) / tiers, w = width, d = depth, at = podium;
+                    for (int t = 0; t < tiers; t++)
+                    {
+                        k.Box(skin, roofGravel, foot + Vector3.up * at, w, d, tierHeight, 0f, 32f, 28f, Rand(0f, 1f));
+                        at += tierHeight; w *= 0.8f; d *= 0.8f;
+                    }
+                    k.Cylinder(pole, null, foot + Vector3.up * at, 1.4f, Rand(22f, 48f), 6, 0.1f);
+                    break;
+                }
+
+                case 3: // Round tower with a plant drum on top.
+                {
+                    float radius = Mathf.Min(width, depth) * 0.5f;
+                    k.Cylinder(skin, roofGravel, deck, radius, height - podium, 22, radius, 32f, 28f);
+                    k.Cylinder(corrugated, roofGravel, foot + Vector3.up * height, radius * 0.55f, 5f, 14);
+                    break;
+                }
+
+                case 4: // Twin towers joined by a sky bridge.
+                {
+                    float towerWidth = width * 0.42f;
+                    foreach (float side in new[] { -1f, 1f })
+                    {
+                        float h = (height - podium) * (side < 0f ? 1f : 0.86f);
+                        Vector3 at = deck + Vector3.right * (side * width * 0.29f);
+                        k.Box(skin, roofGravel, at, towerWidth, depth * 0.8f, h, 0f, 32f, 28f, Rand(0f, 1f));
+                        RoofClutter(k, at + Vector3.up * h, towerWidth, depth * 0.8f);
+                    }
+                    k.Box(Pick(offices), roofGravel, deck + Vector3.up * ((height - podium) * 0.55f), width * 0.2f, depth * 0.3f, 7f, 0f, 32f, 28f);
+                    break;
+                }
+
+                default: // Tower with a chamfered look: a main shaft flanked by two lower wings.
+                {
+                    k.Box(skin, roofGravel, deck, width * 0.6f, depth, height - podium, 0f, 32f, 28f, Rand(0f, 1f));
+                    Material wing = Pick(towers);
+                    foreach (float side in new[] { -1f, 1f })
+                        k.Box(wing, roofGravel, deck + Vector3.right * (side * width * 0.4f), width * 0.22f, depth * 0.7f, (height - podium) * Rand(0.5f, 0.75f), 0f, 32f, 28f, Rand(0f, 1f));
+                    RoofClutter(k, foot + Vector3.up * height, width * 0.6f, depth);
+                    break;
+                }
             }
             Solid("City", foot, width + 6f, depth + 6f, height);
         }
@@ -709,6 +810,40 @@ public static class WorldBuilder
     {
         int built = 0;
         float halfX = (x1 - x0) * 0.5f, halfZ = (z1 - z0) * 0.5f;
+        MeshKit k = Kit(kit);
+
+        // Some blocks are a single development rather than four separate plots.
+        int layout = rng.Next(5);
+        if (layout == 0)
+        {
+            // Two long apartment slabs facing each other across a courtyard of trees.
+            Material skin = Pick(flats);
+            float height = Rand(28f, 60f);
+            foreach (float side in new[] { -1f, 1f })
+            {
+                Vector3 foot = new Vector3((x0 + x1) * 0.5f, y, (z0 + z1) * 0.5f + side * halfZ * 0.6f);
+                k.Box(skin, roofGravel, foot, halfX * 1.8f, 16f, height, 0f, 32f, 28f, Rand(0f, 1f));
+                RoofClutter(k, foot + Vector3.up * height, halfX * 1.6f, 14f);
+                Solid("City", foot, halfX * 1.8f, 16f, height);
+            }
+            for (int t = 0; t < 10; t++) Tree(Rand(x0 + 10f, x1 - 10f), (z0 + z1) * 0.5f + Rand(-12f, 12f), 1, Rand(0.7f, 1f));
+            return 2;
+        }
+        if (layout == 1)
+        {
+            // An L-shaped office block wrapped round a plaza.
+            Material skin = Pick(offices);
+            float height = Rand(30f, 75f);
+            Vector3 corner = new Vector3(x0 + halfX, y, z0 + halfZ);
+            k.Box(skin, roofGravel, corner + new Vector3(-halfX * 0.55f, 0f, 0f), halfX * 0.7f, halfZ * 1.8f, height, 0f, 32f, 28f, Rand(0f, 1f));
+            k.Box(skin, roofGravel, corner + new Vector3(halfX * 0.25f, 0f, -halfZ * 0.6f), halfX * 1.1f, halfZ * 0.6f, height * Rand(0.6f, 1f), 0f, 32f, 28f, Rand(0f, 1f));
+            RoofClutter(k, corner + new Vector3(-halfX * 0.55f, height, 0f), halfX * 0.7f, halfZ * 1.8f);
+            Solid("City", corner + new Vector3(-halfX * 0.55f, 0f, 0f), halfX * 0.7f, halfZ * 1.8f, height);
+            Solid("City", corner + new Vector3(halfX * 0.25f, 0f, -halfZ * 0.6f), halfX * 1.1f, halfZ * 0.6f, height);
+            for (int t = 0; t < 5; t++) Tree(corner.x + Rand(5f, halfX * 0.8f), corner.z + Rand(0f, halfZ * 0.8f), 1, Rand(0.6f, 0.9f));
+            return 2;
+        }
+
         for (int a = 0; a < 2; a++)
         {
             for (int b = 0; b < 2; b++)
@@ -718,14 +853,65 @@ public static class WorldBuilder
                 float height = Rand(16f, 70f);
                 Vector3 foot = new Vector3(x0 + halfX * (a + 0.5f), y, z0 + halfZ * (b + 0.5f));
                 Material skin = height > 40f ? Pick(offices) : Pick(flats);
-                Kit(kit).Box(skin, roofGravel, foot, width, depth, height, 0f, 32f, 28f, Rand(0f, 1f));
-                // Plant room on the roof.
-                Kit(kit).Box(corrugated, roofGravel, foot + new Vector3(Rand(-5f, 5f), height, Rand(-5f, 5f)), 8f, 6f, 3.5f);
+                k.Box(skin, roofGravel, foot, width, depth, height, 0f, 32f, 28f, Rand(0f, 1f));
+                // Taller ones often step back for their top floors.
+                if (height > 35f && rng.Next(2) == 0)
+                {
+                    float extra = Rand(8f, 18f);
+                    k.Box(skin, roofGravel, foot + Vector3.up * height, width * 0.7f, depth * 0.7f, extra, 0f, 32f, 28f, Rand(0f, 1f));
+                    RoofClutter(k, foot + Vector3.up * (height + extra), width * 0.6f, depth * 0.6f);
+                    height += extra;
+                }
+                else RoofClutter(k, foot + Vector3.up * height, width, depth);
                 Solid("City", foot, width, depth, height);
                 built++;
             }
         }
         return built;
+    }
+
+    /// <summary>Broadcast tower: the tallest thing in the city, standing in its own small park.</summary>
+    static void TvTower(string kit, Vector2 centre, float y)
+    {
+        MeshKit k = Kit(kit);
+        Vector3 foot = new Vector3(centre.x, y, centre.y);
+        k.Cylinder(concrete, null, foot, 10f, 195f, 18, 4f, 20f, 20f);
+        k.Cylinder(concrete, concrete, foot, 22f, 6f, 18, 12f, 20f, 20f);
+        // Observation pod: a wide glazed drum between two tapering collars.
+        k.Cylinder(white, null, foot + Vector3.up * 188f, 5f, 8f, 18, 15f);
+        k.Cylinder(darkGlass, white, foot + Vector3.up * 196f, 15f, 9f, 18);
+        k.Cylinder(white, white, foot + Vector3.up * 205f, 12f, 5f, 18, 5f);
+        k.Cylinder(pole, null, foot + Vector3.up * 210f, 1.6f, 85f, 8, 0.2f);
+        k.Box(lamp, lamp, foot + Vector3.up * 295f, 1f, 1f, 1f);
+        Solid("City", foot, 26f, 26f, 295f);
+        for (int t = 0; t < 30; t++)
+        {
+            Vector2 at = centre + new Vector2(Rand(-65f, 65f), Rand(-50f, 50f));
+            if ((at - centre).magnitude > 26f) Tree(at.x, at.y, 1, Rand(0.8f, 1.2f));
+        }
+    }
+
+    /// <summary>A sports arena: a flared bowl round a green pitch, with canopies over the long sides.</summary>
+    static void Stadium(string kit, Vector2 centre, float y)
+    {
+        MeshKit k = Kit(kit);
+        Vector3 foot = new Vector3(centre.x, y, centre.y);
+        k.Cylinder(concrete, null, foot, 50f, 24f, 28, 58f, 20f, 20f);
+        k.Cylinder(Pick(offices), null, foot, 50.5f, 8f, 28, 50.5f, 32f, 28f);
+        k.GroundRect(pitch, foot + Vector3.up * 0.4f, 62f, 40f);
+        k.GroundRect(paint, foot + Vector3.up * 0.45f, 0.6f, 40f);
+        foreach (float side in new[] { -1f, 1f })
+        {
+            k.Box(white, white, foot + new Vector3(0f, 24f, side * 44f), 84f, 22f, 2f);
+            // Floodlight masts at the corners.
+            foreach (float end in new[] { -1f, 1f })
+            {
+                Vector3 mast = foot + new Vector3(end * 48f, 0f, side * 40f);
+                k.Box(pole, null, mast, 1f, 1f, 42f);
+                k.Box(lamp, lamp, mast + Vector3.up * 42f, 6f, 1f, 3.5f, end * side * 45f);
+            }
+        }
+        Solid("City", foot, 110f, 110f, 26f);
     }
 
     static int Suburb(string kit, float x0, float x1, float z0, float z1, float y)
