@@ -27,3 +27,41 @@ subfolder; nothing here is edited by hand.
 
 The world builder (`Assets/Editor/WorldBuilder.cs`) picks these up automatically
 and falls back to generated textures if a folder is missing.
+
+## Quaternius
+
+- Source: "Ultimate Spaceships" (May 2021) by Quaternius, https://quaternius.com,
+  downloaded from https://opengameart.org/content/lowpoly-spaceships-pack
+- License: Creative Commons CC0 1.0 Universal. Commercial use allowed, no
+  attribution required (crediting Quaternius is appreciated).
+- Downloaded: 2026-10-11. Kept: the FBX model and one texture set of all eleven ships.
+
+| Folder | Used for |
+|---|---|
+| `UltimateSpaceships/Spitfire` | Enemy aircraft |
+| `UltimateSpaceships/Striker` | Default player aircraft, and the ones parked on the carrier |
+| The other nine ship folders | Selectable player aircraft (pause menu) |
+
+The graphics builder (`Assets/Editor/GraphicsBuilder.cs`) falls back to the
+generated jet if these folders are missing.
+
+## NASA
+
+- Source: NASA 3D Resources, https://github.com/nasa/NASA-3D-Resources
+  (folders `3D Models/Global Hawk` and `3D Models/Space Shuttle (D)`).
+- Terms: NASA describes these as free and without copyright, subject to the
+  NASA Images and Media Usage Guidelines
+  (https://www.nasa.gov/nasa-brand-center/images-and-media/).
+  Those guidelines restrict use of the NASA insignia and forbid implying
+  NASA endorsement. The Space Shuttle's texture shows the NASA logo, so
+  check the guidelines (or repaint the texture) before any commercial release.
+- Downloaded: 2026-10-12, as `.glb` files, imported through Unity's glTFast
+  and Draco packages.
+
+| Folder | Used for |
+|---|---|
+| `NASA/GlobalHawk` | Selectable player aircraft |
+| `NASA/SpaceShuttle` | Selectable player aircraft |
+
+NASA's X-57 model was not used: it is a 1.4-million-triangle engineering
+model with no materials.

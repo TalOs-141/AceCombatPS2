@@ -184,8 +184,10 @@ public class CityBuildings : MonoBehaviour
         float half = mapSize * 0.5f, tileSize = mapSize / tilesPerSide;
         foreach (Terrain terrain in Terrain.activeTerrains)
         {
+            // Only the detailed tiles; the coarse surrounding terrain uses much larger ones.
+            if (Mathf.Abs(terrain.terrainData.size.x - tileSize) > 1f) continue;
             Vector3 origin = terrain.transform.position;
-            int ix = Mathf.RoundToInt((origin.x + half) / tileSize), iz = Mathf.RoundToInt((origin.z + half) / tileSize);
+            int ix =Mathf.RoundToInt((origin.x + half) / tileSize), iz = Mathf.RoundToInt((origin.z + half) / tileSize);
             if (ix < 0 || iz < 0 || ix >= tilesPerSide || iz >= tilesPerSide) continue;
             terrainGrid[iz * tilesPerSide + ix] = terrain;
             terrainBase[iz * tilesPerSide + ix] = origin.y;

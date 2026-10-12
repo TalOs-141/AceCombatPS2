@@ -10,6 +10,8 @@ at true scale.
 | `SanDiego/Imagery/aerial_X_Z.jpg` | 16 aerial photo tiles, 5 km each, 1.25 m per pixel. X counts west to east, Z south to north. | USGS NAIP Imagery service |
 | `SanDiego/elevation_2049.bytes` | Ground height, 2049 x 2049 samples of 32-bit float metres, south row first | USGS 3D Elevation Program (3DEP) |
 
+| `SanDiego/BackdropSource/backdrop_X_Z.jpg` | 4 aerial tiles of the surrounding 64 km, 32 km each, 8 m per pixel (black where there is no US coverage) | USGS NAIP Imagery service |
+| `SanDiego/backdrop_elevation_513.bytes` | Ground height for the surrounding 64 km, 513 x 513 samples, -9999 where there is no data | USGS 3DEP |
 | `SanDiego/buildings.bytes` | About 100,000 building outlines with heights and roof triangles, converted to map coordinates | OpenStreetMap |
 
 The imagery and elevation come from The National Map and are in the public domain with no

@@ -361,9 +361,12 @@ public class CombatHud : MonoBehaviour
             float kmh = plane != null ? plane.takeoffSpeed * 3.6f : 0f;
             GUI.color = HudGreen;
             GUI.Label(line, "CLEARED FOR TAKEOFF", bigLabel);
-            GUI.Label(hint, pad
-                ? $"Hold RT to launch, pull back at {kmh:0} km/h, then D-pad down to raise the gear"
-                : $"Hold Shift to launch, press S at {kmh:0} km/h, then G to raise the gear", label);
+            if (plane != null && plane.helicopter)
+                GUI.Label(hint, pad ? "Hold RT to lift off, LT to descend" : "Hold Shift to lift off, Ctrl to descend", label);
+            else
+                GUI.Label(hint, pad
+                    ? $"Hold RT to launch, pull back at {kmh:0} km/h, then D-pad down to raise the gear"
+                    : $"Hold Shift to launch, press S at {kmh:0} km/h, then G to raise the gear", label);
         }
         else if (phase == MissionPhase.ReturnToBase)
         {
@@ -394,7 +397,11 @@ public class CombatHud : MonoBehaviour
         if (plane == null || player == null || player.IsDead) return;
         label.alignment = TextAnchor.UpperLeft;
 
-        if (plane.GearPosition > 0f && plane.GearPosition < 1f)
+        if (plane.helicopter)
+        {
+            // Skids are always down; nothing to report.
+        }
+        else if (plane.GearPosition > 0f && plane.GearPosition < 1f)
         {
             GUI.color = HudAmber;
             GUI.Label(R(20f, 112f, 300f, 24f), plane.GearDown ? "GEAR  LOWERING" : "GEAR  RAISING", label);
@@ -475,7 +482,7 @@ public class CombatHud : MonoBehaviour
     /// </summary>
     void DrawLandingGuide()
     {
-        if (plane == null || plane.IsGrounded || !plane.GearDown || player == null || player.IsDead) return;
+        if (plane == null || plane.IsGrounded || !plane.GearDown || plane.helicopter || player == null || player.IsDead) return;
 
         LandingSurface surface = LandingSurface.Nearest(plane.transform.position);
         if (surface == null) return;
@@ -539,40 +546,64 @@ public class CombatHud : MonoBehaviour
         GameFlow flow = GameFlow.Instance;
         if (flow == null || !flow.Paused) return;
 
-        GUI.color = new Color(0f, 0f, 0f, 0.7f);
+        GUI.color = new Color(0f, 0f, 0f, 0.74f);
         GUI.DrawTexture(new Rect(0f, 0f, Screen.width, Screen.height), Texture2D.whiteTexture);
 
         GUI.color = HudGreen;
-        GUI.Label(R(0f, 60f, ViewWidth, 44f), "PAUSED", bigLabel);
+        GUI.Label(R(0f, 34f, ViewWidth, 44f), "PAUSED", bigLabel);
 
-        string[,] rows =
+        // The menu: one highlighted row at a time; left and right change the two settings.
+        string vehicle = flow.Vehicles != null ? flow.Vehicles.NameOf(flow.PendingVehicle) : "-";
+        string[] rows =
+        {
+            flow.MenuChanged ? "Resume  (restarts the mission with your changes)" : "Resume",
+            $"Vehicle     <  {vehicle}  >",
+            $"Free play   <  {(flow.PendingFreeFlight ? "On: no enemies" : "Off")}  >",
+            "Restart mission",
+        };
+        for (int i = 0; i < rows.Length; i++)
+        {
+            bool selected = i == flow.MenuIndex;
+            float y = 92f + i * 34f;
+            if (selected)
+            {
+                GUI.color = new Color(HudGreen.r, HudGreen.g, HudGreen.b, 0.18f);
+                GUI.DrawTexture(R(ViewWidth * 0.5f - 300f, y - 3f, 600f, 30f), Texture2D.whiteTexture);
+            }
+            GUI.color = selected ? Color.white : HudGreen;
+            GUI.Label(R(0f, y, ViewWidth, 26f), rows[i], label);
+        }
+        GUI.color = HudBlue;
+        GUI.Label(R(0f, 234f, ViewWidth, 24f), FlightInput.Current.usingGamepad
+            ? "D-pad or stick: choose and change     A: select     Start or B: resume"
+            : "W / S: choose     A / D: change     Enter: select     Esc: resume", label);
+
+        string[,] controls =
         {
             { "", "KEYBOARD", "CONTROLLER" },
             { "Pitch / roll", "W S / A D", "Left stick" },
             { "Yaw", "Q / E", "LB / RB" },
             { "Accelerate / brake", "Shift / Ctrl", "RT / LT" },
-            { "High-G turn", "Hold Shift + Ctrl", "Hold RT + LT" },
+            { "Helicopter: climb / descend", "Shift / Ctrl", "RT / LT" },
+            { "High-G turn (jets)", "Hold Shift + Ctrl", "Hold RT + LT" },
             { "Missile", "Space", "B / Circle" },
             { "Gun", "F or left mouse", "A / Cross" },
-            { "Switch target (tap)", "Tab", "Y / Triangle" },
-            { "Target view (hold)", "Tab", "Y / Triangle" },
+            { "Switch target / target view", "Tab: tap / hold", "Y: tap / hold" },
             { "Look around", "-", "Right stick" },
             { "Cockpit / chase view", "C", "Click right stick" },
-            { "Landing gear", "G", "D-pad down" },
-            { "Resume", "Esc or P", "Start" },
+            { "Landing gear (jets)", "G", "D-pad down" },
             { "Restart mission", "R", "Select / Back" },
-            { GameFlow.FreeFlight ? "Free flight: ON" : "Free flight: OFF", "V to switch", "X / Square to switch" },
         };
 
         label.alignment = TextAnchor.UpperLeft;
-        float left = ViewWidth * 0.5f - 330f;
-        for (int row = 0; row < rows.GetLength(0); row++)
+        float left = ViewWidth * 0.5f - 350f;
+        for (int row = 0; row < controls.GetLength(0); row++)
         {
-            float y = 130f + row * 30f;
+            float y = 280f + row * 30f;
             GUI.color = row == 0 ? HudBlue : HudGreen;
-            GUI.Label(R(left, y, 250f, 26f), rows[row, 0], label);
-            GUI.Label(R(left + 260f, y, 220f, 26f), rows[row, 1], label);
-            GUI.Label(R(left + 480f, y, 220f, 26f), rows[row, 2], label);
+            GUI.Label(R(left, y, 290f, 26f), controls[row, 0], label);
+            GUI.Label(R(left + 300f, y, 210f, 26f), controls[row, 1], label);
+            GUI.Label(R(left + 510f, y, 210f, 26f), controls[row, 2], label);
         }
         label.alignment = TextAnchor.UpperCenter;
     }

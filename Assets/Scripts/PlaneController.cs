@@ -8,7 +8,7 @@ using UnityEngine;
 /// on its landing gear instead. No real aerodynamics.
 /// </summary>
 [RequireComponent(typeof(Rigidbody))]
-public class PlaneController : MonoBehaviour
+public partial class PlaneController : MonoBehaviour
 {
     [Header("Speed (m/s)")]
     public float minSpeed = 70f;
@@ -154,6 +154,7 @@ public class PlaneController : MonoBehaviour
             transform.position = position;
             rb.position = position;
         }
+        if (helicopter) HeliStart();
         ApplyVisuals();
     }
 
@@ -167,12 +168,13 @@ public class PlaneController : MonoBehaviour
         brakeInput = input.brake;
 
         // The gear can't be raised while the plane is standing on it.
-        if (input.gearPressed && !IsGrounded) GearDown = !GearDown;
+        if (input.gearPressed && !IsGrounded && !helicopter) GearDown = !GearDown;
         GearPosition = Mathf.MoveTowards(GearPosition, GearDown ? 1f : 0f, Time.deltaTime / gearTransitionTime);
 
         ApplyVisuals();
+        if (helicopter) HeliUpdate();
 
-        if (IsGrounded) Rumble.Continuous(Mathf.Clamp01(Speed / 90f) * 0.35f, 0f);
+        if (IsGrounded && !helicopter) Rumble.Continuous(Mathf.Clamp01(Speed / 90f) * 0.35f, 0f);
         if (HighG) Rumble.Continuous(0.45f, 0.2f);
         else if (IsStalling) Rumble.Continuous(0.3f, 0.3f);
         else if (Afterburner > 0.5f) Rumble.Continuous(0.12f, 0f);
@@ -202,7 +204,8 @@ public class PlaneController : MonoBehaviour
         float dt = Time.fixedDeltaTime;
         smoothInput = Vector3.Lerp(smoothInput, rawInput, 1f - Mathf.Exp(-controlResponse * dt));
 
-        if (IsGrounded) GroundStep(dt);
+        if (helicopter) HeliStep(dt);
+        else if (IsGrounded) GroundStep(dt);
         else AirStep(dt);
     }
 
@@ -372,7 +375,8 @@ public class PlaneController : MonoBehaviour
 
     void OnCollisionEnter(Collision collision)
     {
-        // Flying into anything is fatal.
+        // A helicopter can nudge things at walking pace; otherwise flying into anything is fatal.
+        if (helicopter && collision.relativeVelocity.magnitude < 8f) return;
         Crash();
     }
 

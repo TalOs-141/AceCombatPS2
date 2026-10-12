@@ -17,8 +17,18 @@ public enum MissionPhase
 public class GameFlow : MonoBehaviour
 {
     public static GameFlow Instance { get; private set; }
-    /// <summary>No enemies: just fly. Kept across restarts.</summary>
+    /// <summary>No enemies: just fly. Chosen in the pause menu and remembered between sessions.</summary>
     public static bool FreeFlight;
+    const string FreeFlightKey = "AceCombat.FreeFlight";
+
+    /// <summary>Rows in the pause menu: resume, vehicle, free play, restart.</summary>
+    public const int MenuItems = 4;
+    public int MenuIndex { get; private set; }
+    /// <summary>Choices made in the menu; they take effect when the mission restarts.</summary>
+    public int PendingVehicle { get; private set; }
+    public bool PendingFreeFlight { get; private set; }
+    public VehicleSelector Vehicles { get; private set; }
+    public bool MenuChanged => PendingVehicle != VehicleSelector.Selected || PendingFreeFlight != FreeFlight;
 
     public Target player;
     [Tooltip("Where the mission ends: land here once every target is destroyed.")]
@@ -43,6 +53,7 @@ public class GameFlow : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        FreeFlight = PlayerPrefs.GetInt(FreeFlightKey, 0) == 1;
         Time.timeScale = 1f;
         AudioListener.pause = false;
     }
@@ -52,6 +63,7 @@ public class GameFlow : MonoBehaviour
         if (player == null) return;
         plane = player.GetComponent<PlaneController>();
         weapons = player.GetComponent<WeaponSystem>();
+        Vehicles = player.GetComponent<VehicleSelector>();
 
         player.Died += OnPlayerDied;
         player.Damaged += OnPlayerDamaged;
@@ -131,21 +143,25 @@ public class GameFlow : MonoBehaviour
         FlightInput.State input = FlightInput.Current;
         bool ended = Phase == MissionPhase.Complete || Phase == MissionPhase.Failed;
 
-        if (input.pausePressed && Phase != MissionPhase.Failed) SetPaused(!Paused);
+        if (input.pausePressed && Phase != MissionPhase.Failed)
+        {
+            if (Paused) ResumeOrApply();
+            else SetPaused(true);
+            return;
+        }
 
         // Restarting needs the pause menu (or a finished mission) so it can't be hit by accident mid-fight.
         if (input.restartPressed && (Paused || ended))
         {
+            if (Paused) ApplyChoices();
             Restart();
             return;
         }
-        if (Paused && input.freeFlightPressed)
+        if (Paused)
         {
-            FreeFlight = !FreeFlight;
-            Restart();
+            UpdateMenu(input);
             return;
         }
-        if (Paused) return;
 
         if (restartAt > 0f && Time.time >= restartAt)
         {
@@ -184,8 +200,63 @@ public class GameFlow : MonoBehaviour
         Rumble.Tick();
     }
 
+    void UpdateMenu(FlightInput.State input)
+    {
+        if (input.menuUp) MenuIndex = (MenuIndex + MenuItems - 1) % MenuItems;
+        if (input.menuDown) MenuIndex = (MenuIndex + 1) % MenuItems;
+        int step = (input.menuRight ? 1 : 0) - (input.menuLeft ? 1 : 0);
+
+        switch (MenuIndex)
+        {
+            case 0:
+                if (input.confirmPressed) ResumeOrApply();
+                break;
+            case 1:
+                // Left and right cycle through the hangar; confirm steps forward too.
+                if (Vehicles != null && Vehicles.Count > 0 && (step != 0 || input.confirmPressed))
+                    PendingVehicle = (PendingVehicle + (step != 0 ? step : 1) + Vehicles.Count) % Vehicles.Count;
+                break;
+            case 2:
+                if (step != 0 || input.confirmPressed) PendingFreeFlight = !PendingFreeFlight;
+                break;
+            case 3:
+                if (input.confirmPressed)
+                {
+                    ApplyChoices();
+                    Restart();
+                }
+                break;
+        }
+        if (input.backPressed && Paused) ResumeOrApply();
+    }
+
+    void ApplyChoices()
+    {
+        VehicleSelector.Selected = PendingVehicle;
+        FreeFlight = PendingFreeFlight;
+        PlayerPrefs.SetInt(FreeFlightKey, FreeFlight ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    /// <summary>Leaves the menu. A new vehicle or mode needs a fresh mission, so changes restart it.</summary>
+    void ResumeOrApply()
+    {
+        if (MenuChanged)
+        {
+            ApplyChoices();
+            Restart();
+        }
+        else SetPaused(false);
+    }
+
     void SetPaused(bool paused)
     {
+        if (paused)
+        {
+            MenuIndex = 0;
+            PendingVehicle = VehicleSelector.Selected;
+            PendingFreeFlight = FreeFlight;
+        }
         Paused = paused;
         Time.timeScale = paused ? 0f : 1f;
         AudioListener.pause = paused;

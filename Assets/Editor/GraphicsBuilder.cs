@@ -437,7 +437,7 @@ public static class GraphicsBuilder
         if (player != null)
         {
             Transform model = player.transform.Find("Model");
-            Renderer body = ReplaceBody(model, jet, playerBody, canopy, trim);
+            int vehicles = BuildHangar(player, model, jet, playerBody, canopy, trim);
 
             Transform burner = model.Find("Afterburner");
             if (burner != null)
@@ -457,25 +457,234 @@ public static class GraphicsBuilder
             {
                 cam.nearClipPlane = 0.5f;
                 var chase = cam.GetComponent<ChaseCamera>();
-                // From the pilot's seat only the canopy glass would be in the way.
+                // Which renderers the cockpit view hides is decided at runtime by the vehicle selector.
                 if (chase != null) chase.hideInCockpit = new Renderer[0];
                 EditorUtility.SetDirty(cam);
             }
             EditorUtility.SetDirty(player);
-            log.Add("player jet rebuilt (" + jet.triangles.Length / 3 + " triangles)");
+            log.Add($"hangar: {vehicles} flyable vehicles");
         }
 
         // Enemy prefab.
         const string enemyPath = "Assets/Prefabs/Enemy.prefab";
         GameObject enemy = PrefabUtility.LoadPrefabContents(enemyPath);
-        ReplaceBody(enemy.transform.Find("Model"), jet, enemyBody, canopy, trim);
+        ReplaceBody(enemy.transform.Find("Model"), jet, enemyBody, canopy, trim, "Spitfire", "Spitfire_Red");
         PrefabUtility.SaveAsPrefabAsset(enemy, enemyPath);
         PrefabUtility.UnloadPrefabContents(enemy);
         log.Add("enemy jet rebuilt");
     }
 
     /// <summary>Swaps the old box-built airframe under a Model transform for the generated mesh.</summary>
-    static Renderer ReplaceBody(Transform model, Mesh mesh, Material body, Material canopy, Material trim)
+    const string ShipDir = "Assets/ThirdParty/Quaternius/UltimateSpaceships";
+
+    static bool HasShip(string ship) => AssetDatabase.LoadAssetAtPath<GameObject>($"{ShipDir}/{ship}/{ship}.fbx") != null;
+
+    /// <summary>
+    /// Places one of the downloaded Quaternius ships under a parent, scaled so its
+    /// longest side is <paramref name="size"/> metres and centred on the parent.
+    /// Returns its renderers, or null if the ship's files aren't in the project.
+    /// </summary>
+    static Renderer[] AddShip(Transform parent, string ship, string textureName, float size, string objectName = "Body")
+    {
+        var model = AssetDatabase.LoadAssetAtPath<GameObject>($"{ShipDir}/{ship}/{ship}.fbx");
+        var texture = AssetDatabase.LoadAssetAtPath<Texture2D>($"{ShipDir}/{ship}/{textureName}.png");
+        if (model == null || texture == null) return null;
+        return AddModel(parent, model, Mat("Ship" + ship, Lit, Color.white, texture, 0.35f), size, Vector3.zero, objectName);
+    }
+
+    /// <summary>
+    /// Places any imported model under a parent, turned by <paramref name="turn"/> so its nose
+    /// points forward, scaled so its longest side is <paramref name="size"/> metres, and centred.
+    /// A material, if given, replaces the model's own.
+    /// </summary>
+    static Renderer[] AddModel(Transform parent, GameObject model, Material material, float size, Vector3 turn, string objectName = "Body")
+    {
+        if (model == null) return null;
+        GameObject go = Object.Instantiate(model, parent);
+        go.name = objectName;
+        // The model file carries its own rotation and scale (it may have been authored Z-up); keep those.
+        go.transform.localPosition = Vector3.zero;
+        go.transform.localRotation = Quaternion.Euler(turn) * go.transform.localRotation;
+        Vector3 authoredScale = go.transform.localScale;
+
+        // Measure the model in the parent's space, whatever its own internal hierarchy looks like.
+        var bounds = new Bounds();
+        bool any = false;
+        Renderer[] renderers = go.GetComponentsInChildren<Renderer>();
+        foreach (Renderer r in renderers)
+        {
+            var filter = r.GetComponent<MeshFilter>();
+            if (filter == null || filter.sharedMesh == null) continue;
+            Matrix4x4 toParent = parent.worldToLocalMatrix * r.transform.localToWorldMatrix;
+            Bounds mesh = filter.sharedMesh.bounds;
+            for (int corner = 0; corner < 8; corner++)
+            {
+                Vector3 p = mesh.center + Vector3.Scale(mesh.extents, new Vector3((corner & 1) * 2 - 1, ((corner >> 1) & 1) * 2 - 1, ((corner >> 2) & 1) * 2 - 1));
+                p = toParent.MultiplyPoint3x4(p);
+                if (any) bounds.Encapsulate(p);
+                else { bounds = new Bounds(p, Vector3.zero); any = true; }
+            }
+            if (material == null) continue;
+            var materials = new Material[r.sharedMaterials.Length];
+            for (int m = 0; m < materials.Length; m++) materials[m] = material;
+            r.sharedMaterials = materials;
+        }
+        if (!any) return null;
+
+        float scale = size / Mathf.Max(bounds.size.x, bounds.size.z);
+        go.transform.localScale = authoredScale * scale;
+        go.transform.localPosition = -bounds.center * scale;
+        return renderers;
+    }
+
+    /// <summary>
+    /// Fills the player's hangar: every flyable vehicle's model goes under Model/Bodies,
+    /// and the VehicleSelector is told about each. Returns how many there are.
+    /// </summary>
+    static int BuildHangar(GameObject player, Transform model, Mesh jet, Material jetBody, Material canopy, Material trim)
+    {
+        var keep = new HashSet<string> { "Gear", "Afterburner" };
+        for (int i = model.childCount - 1; i >= 0; i--)
+            if (!keep.Contains(model.GetChild(i).name)) Object.DestroyImmediate(model.GetChild(i).gameObject);
+
+        Transform bodies = new GameObject("Bodies").transform;
+        bodies.SetParent(model, false);
+        var hangar = new List<VehicleSelector.Vehicle>();
+
+        Transform Holder(string name)
+        {
+            Transform holder = new GameObject(name).transform;
+            holder.SetParent(bodies, false);
+            return holder;
+        }
+
+        // The Quaternius sci-fi ships (the red Spitfire is kept for the enemy).
+        (string ship, string texture)[] ships =
+        {
+            ("Striker", "Striker_Blue"), ("Executioner", "Executioner_Blue"), ("Insurgent", "Insurgent_Blue"),
+            ("Zenith", "Zenith_Red"), ("Imperial", "Imperial_Orange"), ("Omen", "Omen_Orange"),
+            ("Challenger", "Challenger_Green"), ("Dispatcher", "Dispatcher_Purple"), ("Bob", "Bob_Orange"), ("Pancake", "Pancake_Orange"),
+        };
+        foreach ((string ship, string texture) in ships)
+        {
+            Transform holder = Holder(ship);
+            if (AddShip(holder, ship, texture, 15f) == null) Object.DestroyImmediate(holder.gameObject);
+            else hangar.Add(new VehicleSelector.Vehicle { displayName = ship, body = holder.gameObject });
+        }
+
+        // NASA's models keep their own materials. Each needs turning to face forward.
+        (string name, string path, float size, Vector3 turn)[] nasa =
+        {
+            ("Global Hawk (NASA)", "Assets/ThirdParty/NASA/GlobalHawk/GlobalHawk.glb", 18f, NasaTurnGlobalHawk),
+            ("Space Shuttle (NASA)", "Assets/ThirdParty/NASA/SpaceShuttle/SpaceShuttle.glb", 17f, NasaTurnShuttle),
+        };
+        foreach ((string name, string path, float size, Vector3 turn) in nasa)
+        {
+            Transform holder = Holder(name);
+            if (AddModel(holder, AssetDatabase.LoadAssetAtPath<GameObject>(path), null, size, turn) == null) Object.DestroyImmediate(holder.gameObject);
+            else hangar.Add(new VehicleSelector.Vehicle { displayName = name, body = holder.gameObject, showAfterburner = false });
+        }
+
+        // The generated jet stays available.
+        {
+            Transform holder = Holder("Fighter jet");
+            var go = new GameObject("Body", typeof(MeshFilter), typeof(MeshRenderer));
+            go.transform.SetParent(holder, false);
+            go.GetComponent<MeshFilter>().sharedMesh = jet;
+            go.GetComponent<MeshRenderer>().sharedMaterials = new[] { jetBody, canopy, trim };
+            hangar.Add(new VehicleSelector.Vehicle { displayName = "Fighter jet", body = holder.gameObject });
+        }
+
+        // And a helicopter, built from scratch.
+        {
+            Transform holder = Holder("Helicopter");
+            BuildHelicopter(holder, canopy, trim, out Transform rotor, out Transform tailRotor);
+            hangar.Add(new VehicleSelector.Vehicle
+            {
+                displayName = "Helicopter", body = holder.gameObject, helicopter = true, rotor = rotor, tailRotor = tailRotor,
+                showGear = false, showAfterburner = false, cockpitOffset = new Vector3(0f, 0.55f, 3.3f),
+            });
+        }
+
+        // In the editor only the first is shown; at runtime the selector shows the chosen one.
+        for (int i = 0; i < hangar.Count; i++) hangar[i].body.SetActive(i == 0);
+
+        var selector = player.GetComponent<VehicleSelector>();
+        if (selector == null) selector = player.AddComponent<VehicleSelector>();
+        selector.vehicles = hangar.ToArray();
+        EditorUtility.SetDirty(selector);
+        return hangar.Count;
+    }
+
+    // How far each NASA model has to be turned for its nose to point along +Z.
+    static readonly Vector3 NasaTurnGlobalHawk = new Vector3(0f, 0f, 0f);
+    static readonly Vector3 NasaTurnShuttle = new Vector3(-90f, 90f, 0f);
+
+    /// <summary>
+    /// A simple attack helicopter, about 14 m long: cabin, tail boom, stub wings
+    /// for the missile rails, skids, and separate main and tail rotors that spin.
+    /// The skids' underside is 2.4 m below the centre, matching the plane's gear height.
+    /// </summary>
+    static void BuildHelicopter(Transform parent, Material canopy, Material trim, out Transform rotor, out Transform tailRotor)
+    {
+        const int Body = 0, Glass = 1, Trim = 2;
+        Material paint = Mat("HeliBody", Lit, new Color(0.30f, 0.34f, 0.29f), null, 0.25f);
+        var b = new MeshBuilder(3);
+
+        b.Loft(Body, new[]
+        {
+            new Ring(5.2f, 0.15f, 0.20f, -0.50f), new Ring(4.4f, 0.75f, 0.70f, -0.35f), new Ring(3.0f, 1.00f, 1.05f, -0.10f),
+            new Ring(1.0f, 1.10f, 1.20f, 0f), new Ring(-1.2f, 1.05f, 1.15f, 0.05f), new Ring(-2.6f, 0.60f, 0.70f, 0.35f),
+            new Ring(-4.0f, 0.30f, 0.34f, 0.55f), new Ring(-8.2f, 0.16f, 0.20f, 0.75f),
+        }, 10, false, true, Body);
+        b.Loft(Glass, new[]
+        {
+            new Ring(4.9f, 0.30f, 0.25f, 0.00f), new Ring(4.2f, 0.70f, 0.55f, 0.25f), new Ring(3.0f, 0.90f, 0.75f, 0.55f),
+            new Ring(1.9f, 0.85f, 0.60f, 0.75f), new Ring(1.3f, 0.50f, 0.30f, 0.80f),
+        }, 10, false, false, Glass);
+        // Engine housing under the rotor.
+        b.Loft(Body, new[] { new Ring(1.2f, 0.60f, 0.40f, 1.25f), new Ring(-0.5f, 0.70f, 0.45f, 1.30f), new Ring(-2.2f, 0.50f, 0.35f, 1.15f) }, 8, true, true, Trim);
+
+        // Tail fin and tailplane, stub wings, and skids on struts.
+        b.Panel(Body, new Vector3(0f, 0.8f, -7.2f), new Vector3(0f, 0.8f, -8.4f), new Vector3(0f, 2.6f, -8.9f), new Vector3(0f, 2.6f, -8.1f), 0.12f, 0.08f);
+        b.PanelPair(Body, new Vector3(0.1f, 0.85f, -6.6f), new Vector3(0.1f, 0.85f, -7.4f), new Vector3(1.5f, 0.85f, -7.5f), new Vector3(1.5f, 0.85f, -6.9f), 0.1f, 0.06f);
+        b.PanelPair(Body, new Vector3(1.0f, -0.2f, 0.6f), new Vector3(1.0f, -0.2f, -0.9f), new Vector3(3.7f, -0.35f, -0.8f), new Vector3(3.7f, -0.35f, 0.3f), 0.2f, 0.12f);
+        foreach (float side in new[] { -1f, 1f })
+            b.Loft(Trim, new[] { new Ring(2.7f, 0.09f, 0.09f, -2.3f, side * 1.35f), new Ring(-2.5f, 0.09f, 0.09f, -2.3f, side * 1.35f) }, 6, true, true, Trim);
+        foreach (float z in new[] { 1.5f, -1.5f })
+            b.PanelPair(Trim, new Vector3(0.9f, -0.9f, z + 0.1f), new Vector3(0.9f, -0.9f, z - 0.1f), new Vector3(1.35f, -2.3f, z - 0.1f), new Vector3(1.35f, -2.3f, z + 0.1f), 0.1f, 0.1f);
+
+        var body = new GameObject("Body", typeof(MeshFilter), typeof(MeshRenderer));
+        body.transform.SetParent(parent, false);
+        body.GetComponent<MeshFilter>().sharedMesh = Save(b.Build("Helicopter"), "HelicopterMesh");
+        body.GetComponent<MeshRenderer>().sharedMaterials = new[] { paint, canopy, trim };
+
+        // Main rotor: four blades and a hub, spinning about the vertical.
+        var blades = new MeshBuilder(1);
+        blades.PanelPair(0, new Vector3(0.3f, 0f, 0.18f), new Vector3(0.3f, 0f, -0.18f), new Vector3(7f, 0f, -0.14f), new Vector3(7f, 0f, 0.14f), 0.06f, 0.04f);
+        foreach (float end in new[] { -1f, 1f })
+            blades.Panel(0, new Vector3(-0.18f, 0f, end * 0.3f), new Vector3(0.18f, 0f, end * 0.3f), new Vector3(0.14f, 0f, end * 7f), new Vector3(-0.14f, 0f, end * 7f), 0.06f, 0.04f);
+        blades.Panel(0, new Vector3(-0.45f, 0f, 0.45f), new Vector3(-0.45f, 0f, -0.45f), new Vector3(0.45f, 0f, -0.45f), new Vector3(0.45f, 0f, 0.45f), 0.5f, 0.5f);
+        var rotorGo = new GameObject("Rotor", typeof(MeshFilter), typeof(MeshRenderer));
+        rotorGo.transform.SetParent(parent, false);
+        rotorGo.transform.localPosition = new Vector3(0f, 1.95f, -0.4f);
+        rotorGo.GetComponent<MeshFilter>().sharedMesh = Save(blades.Build("HelicopterRotor"), "HelicopterRotorMesh");
+        rotorGo.GetComponent<MeshRenderer>().sharedMaterial = trim;
+        rotor = rotorGo.transform;
+
+        // Tail rotor: two blades in the vertical plane, spinning about the sideways axis.
+        var tail = new MeshBuilder(1);
+        foreach (float end in new[] { -1f, 1f })
+            tail.Panel(0, new Vector3(0f, end * 0.1f, 0.1f), new Vector3(0f, end * 0.1f, -0.1f), new Vector3(0f, end * 1.15f, -0.08f), new Vector3(0f, end * 1.15f, 0.08f), 0.04f, 0.03f);
+        var tailGo = new GameObject("TailRotor", typeof(MeshFilter), typeof(MeshRenderer));
+        tailGo.transform.SetParent(parent, false);
+        tailGo.transform.localPosition = new Vector3(0.22f, 1.75f, -8.45f);
+        tailGo.GetComponent<MeshFilter>().sharedMesh = Save(tail.Build("HelicopterTailRotor"), "HelicopterTailRotorMesh");
+        tailGo.GetComponent<MeshRenderer>().sharedMaterial = trim;
+        tailRotor = tailGo.transform;
+    }
+
+    static Renderer[] ReplaceBody(Transform model, Mesh mesh, Material body, Material canopy, Material trim, string ship, string shipTexture)
     {
         var keep = new HashSet<string> { "Gear", "Afterburner" };
         for (int i = model.childCount - 1; i >= 0; i--)
@@ -484,12 +693,16 @@ public static class GraphicsBuilder
             if (!keep.Contains(child.name)) Object.DestroyImmediate(child.gameObject);
         }
 
+        // Prefer the downloaded ship; fall back to the generated jet if its files are missing.
+        Renderer[] shipRenderers = AddShip(model, ship, shipTexture, 15f);
+        if (shipRenderers != null) return shipRenderers;
+
         var go = new GameObject("Body", typeof(MeshFilter), typeof(MeshRenderer));
         go.transform.SetParent(model, false);
         go.GetComponent<MeshFilter>().sharedMesh = mesh;
         var renderer = go.GetComponent<MeshRenderer>();
         renderer.sharedMaterials = new[] { body, canopy, trim };
-        return renderer;
+        return new Renderer[] { renderer };
     }
 
     // ---------------------------------------------------------- ground targets
@@ -744,13 +957,16 @@ public static class GraphicsBuilder
         var stands = new MeshKit();
         for (int i = 0; i < spots.Length; i++)
         {
-            var go = new GameObject("Parked Jet", typeof(MeshFilter), typeof(MeshRenderer));
+            var go = new GameObject("Parked Jet");
             go.transform.SetParent(parked, false);
             float x = spots[i] > 100f ? 19f : 31f;
             go.transform.localPosition = new Vector3(x, deckTop + 1.9f, spots[i]);
             go.transform.localRotation = Quaternion.Euler(0f, 215f + (i % 2) * 10f, 0f);
-            go.GetComponent<MeshFilter>().sharedMesh = jet;
-            go.GetComponent<MeshRenderer>().sharedMaterials = jetMaterials;
+            if (AddShip(go.transform, "Striker", "Striker_Blue", 15f) == null)
+            {
+                go.AddComponent<MeshFilter>().sharedMesh = jet;
+                go.AddComponent<MeshRenderer>().sharedMaterials = jetMaterials;
+            }
             foreach (Vector3 leg in new[] { new Vector3(0f, 0f, 4.2f), new Vector3(-1.7f, 0f, -1.6f), new Vector3(1.7f, 0f, -1.6f) })
                 stands.Box(boot, null, go.transform.localPosition + go.transform.localRotation * leg + Vector3.down * 1.9f, 0.3f, 0.3f, 1.4f);
         }

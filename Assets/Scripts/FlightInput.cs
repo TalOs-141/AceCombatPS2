@@ -29,6 +29,10 @@ public static class FlightInput
         public bool restartPressed;
         public bool freeFlightPressed;
         public bool viewPressed;
+        // Pause-menu navigation; each is true only on the frame it is pressed.
+        public bool menuUp, menuDown, menuLeft, menuRight;
+        public bool confirmPressed;
+        public bool backPressed;
         /// <summary>True if the gamepad was the last device touched; used for on-screen hints.</summary>
         public bool usingGamepad;
     }
@@ -43,6 +47,7 @@ public static class FlightInput
     static State state;
     static int frame = -1;
     static bool lastUsedGamepad;
+    static Vector2 lastStickStep;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     static void ResetStatics()
@@ -90,6 +95,12 @@ public static class FlightInput
             s.restartPressed |= kb.rKey.wasPressedThisFrame;
             s.freeFlightPressed |= kb.vKey.wasPressedThisFrame;
             s.viewPressed |= kb.cKey.wasPressedThisFrame;
+            s.menuUp |= kb.wKey.wasPressedThisFrame || kb.upArrowKey.wasPressedThisFrame;
+            s.menuDown |= kb.sKey.wasPressedThisFrame || kb.downArrowKey.wasPressedThisFrame;
+            s.menuLeft |= kb.aKey.wasPressedThisFrame || kb.leftArrowKey.wasPressedThisFrame;
+            s.menuRight |= kb.dKey.wasPressedThisFrame || kb.rightArrowKey.wasPressedThisFrame;
+            s.confirmPressed |= kb.enterKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame;
+            s.backPressed |= kb.backspaceKey.wasPressedThisFrame;
 
             keyboardActive = kb.anyKey.isPressed;
         }
@@ -119,6 +130,16 @@ public static class FlightInput
             s.restartPressed |= pad.selectButton.wasPressedThisFrame;
             s.freeFlightPressed |= pad.buttonWest.wasPressedThisFrame;
             s.viewPressed |= pad.rightStickButton.wasPressedThisFrame;
+
+            // Menus step once per flick of the stick, or per press of the D-pad.
+            Vector2 stickStep = new Vector2(Mathf.Abs(stick.x) > 0.6f ? Mathf.Sign(stick.x) : 0f, Mathf.Abs(stick.y) > 0.6f ? Mathf.Sign(stick.y) : 0f);
+            s.menuUp |= pad.dpad.up.wasPressedThisFrame || (stickStep.y > 0f && lastStickStep.y <= 0f);
+            s.menuDown |= pad.dpad.down.wasPressedThisFrame || (stickStep.y < 0f && lastStickStep.y >= 0f);
+            s.menuLeft |= pad.dpad.left.wasPressedThisFrame || (stickStep.x < 0f && lastStickStep.x >= 0f);
+            s.menuRight |= pad.dpad.right.wasPressedThisFrame || (stickStep.x > 0f && lastStickStep.x <= 0f);
+            lastStickStep = stickStep;
+            s.confirmPressed |= pad.buttonSouth.wasPressedThisFrame;
+            s.backPressed |= pad.buttonEast.wasPressedThisFrame;
 
             gamepadActive = stick.sqrMagnitude > 0.04f || s.look.sqrMagnitude > 0.04f
                             || rightTrigger > 0.2f || leftTrigger > 0.2f

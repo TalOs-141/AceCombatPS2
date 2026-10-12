@@ -70,6 +70,7 @@ public static class RealWorldBuilder
         Transform root = new GameObject("SanDiego").transform;
 
         BuildTerrain(root, log);
+        BuildBackdrop(root, log);
         BuildOcean(water, log);
         BuildRunway(root, log);
         BuildCity(root, log);
@@ -264,6 +265,139 @@ public static class RealWorldBuilder
         log.Add($"{Tiles * Tiles} terrain tiles of {TileSize / 1000f:0} km, aerial photo at {TileSize / 4000f:0.00} m per pixel");
     }
 
+    // ---------------------------------------------------------------- backdrop
+
+    const float BackdropSize = 64000f;
+    const int BackdropGrid = 513;
+    const int BackdropTiles = 2;
+    const float BackdropRange = 1400f;
+
+    /// <summary>
+    /// The land around the detailed map: 64 km of the same imagery and elevation
+    /// at a sixteenth of the resolution, with a hole cut where the detailed
+    /// terrain sits. It is only ever seen from a distance, but it means the
+    /// city is surrounded by its real coastline and mountains instead of sea.
+    /// </summary>
+    static void BuildBackdrop(Transform root, List<string> log)
+    {
+        string elevationPath = Dir + "/backdrop_elevation_513.bytes";
+        if (!File.Exists(elevationPath))
+        {
+            log.Add("no backdrop elevation: surroundings left as open sea");
+            return;
+        }
+        var coarse = new float[BackdropGrid * BackdropGrid];
+        System.Buffer.BlockCopy(File.ReadAllBytes(elevationPath), 0, coarse, 0, coarse.Length * 4);
+
+        var material = AssetDatabase.LoadAssetAtPath<Material>("Assets/Terrain/TerrainMaterial.mat");
+        int perTile = (BackdropGrid - 1) / BackdropTiles, resolution = perTile + 1;
+        float tileSize = BackdropSize / BackdropTiles, spacing = BackdropSize / (BackdropGrid - 1);
+        float half = BackdropSize * 0.5f, inner = MapSize * 0.5f;
+        var random = new System.Random(7);
+
+        for (int iz = 0; iz < BackdropTiles; iz++)
+        {
+            for (int ix = 0; ix < BackdropTiles; ix++)
+            {
+                var photo = new Texture2D(2, 2, TextureFormat.RGB24, false);
+                photo.LoadImage(File.ReadAllBytes($"{Dir}/BackdropSource/backdrop_{ix}_{iz}.jpg"));
+                Color32[] pixels = photo.GetPixels32();
+                int width = photo.width, height = photo.height;
+
+                var heights = new float[resolution, resolution];
+                for (int z = 0; z < resolution; z++)
+                {
+                    for (int x = 0; x < resolution; x++)
+                    {
+                        float wx = -half + (ix * perTile + x) * spacing, wz = -half + (iz * perTile + z) * spacing;
+                        float e = coarse[(iz * perTile + z) * BackdropGrid + ix * perTile + x];
+
+                        Color32 c = pixels[Mathf.Min(z * height / perTile, height - 1) * width + Mathf.Min(x * width / perTile, width - 1)];
+                        bool noPhoto = c.r < 22 && c.g < 22 && c.b < 22;
+                        bool seaColoured = !noPhoto && (c.r + c.g + c.b) / 765f < 0.34f && c.b >= c.r && c.g >= c.r * 0.9f;
+
+                        // Outside US coverage there is no elevation: open sea to the west, and a plain
+                        // stand-in plateau for Mexico's interior, which is far off in the haze.
+                        if (e < -500f) e = wx > 5000f ? 90f : SeaBed;
+                        else if (e < 1f && (seaColoured || noPhoto)) e = SeaBed;
+
+                        // Where the detailed map takes over, match it exactly so the join is closed.
+                        if (Mathf.Abs(wx) <= inner && Mathf.Abs(wz) <= inner) e = Ground(wx, wz);
+
+                        heights[z, x] = Mathf.Clamp01((e - BaseY) / BackdropRange);
+                    }
+                }
+
+                // A cell is cut away if it lies entirely under the detailed terrain.
+                var surface = new bool[perTile, perTile];
+                for (int z = 0; z < perTile; z++)
+                {
+                    for (int x = 0; x < perTile; x++)
+                    {
+                        float x0 = -half + (ix * perTile + x) * spacing, z0 = -half + (iz * perTile + z) * spacing;
+                        bool covered = x0 >= -inner && x0 + spacing <= inner && z0 >= -inner && z0 + spacing <= inner;
+                        surface[z, x] = !covered;
+                    }
+                }
+
+                // Fill the unphotographed strip with a muted land colour instead of black.
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    Color32 c = pixels[i];
+                    if (c.r >= 22 || c.g >= 22 || c.b >= 22) continue;
+                    int grain = random.Next(-7, 8);
+                    pixels[i] = new Color32((byte)(118 + grain), (byte)(112 + grain), (byte)(97 + grain), 255);
+                }
+                photo.SetPixels32(pixels);
+                string photoPath = $"{Dir}/Imagery/backdrop_{ix}_{iz}.jpg";
+                File.WriteAllBytes(photoPath, photo.EncodeToJPG(90));
+                Object.DestroyImmediate(photo);
+                AssetDatabase.ImportAsset(photoPath, ImportAssetOptions.ForceUpdate);
+
+                var layer = new TerrainLayer
+                {
+                    diffuseTexture = ImportPhoto(photoPath),
+                    tileSize = new Vector2(tileSize, tileSize),
+                    smoothness = 0f,
+                    metallic = 0f,
+                };
+                layer = SaveAsset(layer, $"{Dir}/BackdropLayer_{ix}_{iz}.terrainlayer");
+
+                string dataPath = $"{Dir}/Backdrop_{ix}_{iz}.asset";
+                var data = AssetDatabase.LoadAssetAtPath<TerrainData>(dataPath);
+                if (data == null)
+                {
+                    data = new TerrainData();
+                    AssetDatabase.CreateAsset(data, dataPath);
+                }
+                data.heightmapResolution = resolution;
+                data.size = new Vector3(tileSize, BackdropRange, tileSize);
+                data.SetHeights(0, 0, heights);
+                data.SetHoles(0, 0, surface);
+                data.terrainLayers = new[] { layer };
+                data.alphamapResolution = 16;
+                var alpha = new float[16, 16, 1];
+                for (int z = 0; z < 16; z++)
+                    for (int x = 0; x < 16; x++)
+                        alpha[z, x, 0] = 1f;
+                data.SetAlphamaps(0, 0, alpha);
+                EditorUtility.SetDirty(data);
+
+                GameObject go = Terrain.CreateTerrainGameObject(data);
+                go.name = $"Backdrop {ix} {iz}";
+                go.transform.SetParent(root, false);
+                go.transform.position = new Vector3(-half + ix * tileSize, BaseY, -half + iz * tileSize);
+                Terrain terrain = go.GetComponent<Terrain>();
+                terrain.materialTemplate = material;
+                terrain.heightmapPixelError = 8f;
+                terrain.basemapDistance = 90000f;
+                terrain.shadowCastingMode = ShadowCastingMode.Off;
+                terrain.drawInstanced = true;
+            }
+        }
+        log.Add($"surrounding terrain: {BackdropSize / 1000f:0} km across at {tileSize / 4000f:0} m per pixel");
+    }
+
     // ------------------------------------------------------------------- ocean
 
     static void BuildOcean(bool[] water, List<string> log)
@@ -404,7 +538,7 @@ public static class RealWorldBuilder
         {
             var chase = cam.GetComponent<ChaseCamera>();
             cam.transform.SetPositionAndRotation(player.transform.TransformPoint(chase != null ? chase.offset : new Vector3(0f, 3.5f, -16f)), Quaternion.identity);
-            cam.farClipPlane = 45000f;
+            cam.farClipPlane = 75000f;
         }
         log.Add("carrier stationed 8 km west-south-west of the bay, off Point Loma");
     }
@@ -456,7 +590,7 @@ public static class RealWorldBuilder
         RenderSettings.fog = true;
         RenderSettings.fogMode = FogMode.Linear;
         RenderSettings.fogColor = new Color(0.66f, 0.74f, 0.82f);
-        RenderSettings.fogStartDistance = 2500f;
-        RenderSettings.fogEndDistance = 30000f;
+        RenderSettings.fogStartDistance = 3000f;
+        RenderSettings.fogEndDistance = 62000f;
     }
 }
